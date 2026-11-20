@@ -2,7 +2,7 @@
 
 The workspace keeps a retention window of history; older flights, problem reports and work orders load page by page ([ADR-0013](adr/0013-history-retention-window.md), decision D3, finding SZ-1). This page holds the window's rule, the read counts it is measured against, and every lookup by uuid the window can break, with what each one should do.
 
-Status, 20 Nov 2026: the window is on. The workspace snapshot holds only what the window keeps, read through the window's indexes (S7, below); older flights, problem reports and work orders load page by page (S5) on the screens that list them (S6); saves load a bounded working set, with numbering read from `recordNumbers` (S3); the board and the cost report total spending from `costLedger` (S4). The rule is tested in the domain (`src/domain/retention.ts`), and every row the window indexes carries its derived columns, with a backfill for older rows (S2, S7).
+Status, 20 Nov 2026: the window is on, and measured at 20 fleet-years (S8, [below](#measured-at-20-fleet-years-s8)): the snapshot still fails at about 11 years at the size test's volume, from what stays complete (H5). The workspace snapshot holds only what the window keeps, read through the window's indexes (S7, below); older flights, problem reports and work orders load page by page (S5) on the screens that list them (S6); saves load a bounded working set, with numbering read from `recordNumbers` (S3); the board and the cost report total spending from `costLedger` (S4). The rule is tested in the domain (`src/domain/retention.ts`), and every row the window indexes carries its derived columns, with a backfill for older rows (S2, S7).
 
 ## The window
 
@@ -222,7 +222,7 @@ The six lookups S6 left for S7 are done; [The windowed workspace (S7)](#the-wind
 | Problem reports                      | Open ones, and resolved ones created or resolved within the window. A deferral needs an open report and resolving stamps `resolvedAt`, so a resolved report deferred in the window was resolved in it too                                                                                                                  |
 | Work orders                          | Orders without `closedAt` (every open one), those whose own events reach the window by `changedAt` (`[aircraftUuid, changedAt]`), the latest completed with every tie, and the orders that job cards (open, or closed in the window) and cost records (an entry in the window, `[programUuid, kind, changedAt]`) belong to |
 | Job cards, archived job cards, costs | Each of those orders' own (by `workOrderUuid`), cards on no work order, the program's budgets and labor rate, and the cost records of aircraft that left the program, which the window always keeps (D14)                                                                                                                  |
-| Files                                | Each kept work order's files and each kept job card's evidence, by record (was every file of the aircraft)                                                                                                                                                                                                                 |
+| Files                                | Each kept work order's files, and its job cards' evidence by work order (`[aircraftUuid, workOrderUuid]`), the evidence of cards on no work order per aircraft; a program administrator's inventory files by program (`[programUuid]`) (S8; S7 read them per record, before that every file of the aircraft)               |
 | Members                              | As before, from the flights read: the window's scoping then keeps the pilots of kept flights                                                                                                                                                                                                                               |
 
 - **The column for closed work orders.** `closedAt` dates only the closing, so an order revised, corrected or with an item removed after it closed had no column (S2 correction 3). `changedAt` is `workOrderActivity`: the latest of the order's own dated events, set in the encoder on every write. No existing field was enough: `closedAt` misses later events, and `completionDate` is a user's date.
@@ -233,17 +233,17 @@ The six lookups S6 left for S7 are done; [The windowed workspace (S7)](#the-wind
 
 What the snapshot reads at the size test's volume (`convex/__golden__/historyCost.json`), before S7 and since:
 
-| Read                                  | Documents, 1 / 3 years, before | Documents, 1 / 3 years, since | MiB, 1 / 3 years, before | MiB, 1 / 3 years, since | Index ranges, before / since |
-| ------------------------------------- | ------------------------------ | ----------------------------- | ------------------------ | ----------------------- | ---------------------------- |
-| Snapshot, administrator               | 6,099 / 14,259                 | 5,716 / 7,036                 | 7.21 / 17.01             | 7.92 / 9.21             | 1,011 / 2,474                |
-| Snapshot, pilot (two of six aircraft) | 5,947 / 13,819                 | 3,784 / 5,104                 | 7.17 / 16.91             | 4.69 / 5.98             | 96 / 619                     |
-| Snapshot, owner                       | 1,711 / 2,215                  | 1,759 / 1,759                 | 1.02 / 1.29              | 1.04 / 1.04             | 39 / 75                      |
-| Snapshot, board                       | 1,784 / 2,288                  | 1,832 / 1,832                 | 1.04 / 1.31              | 1.06 / 1.06             | 47 / 83                      |
-| The window's history alone            |                                | 2,823 / 2,823                 |                          | 4.91 / 4.91             | 355                          |
+| Read                                  | Documents, 1 / 3 years, before | Documents, 1 / 3 years, since | MiB, 1 / 3 years, before | MiB, 1 / 3 years, since | Index ranges, before / S7 / S8 |
+| ------------------------------------- | ------------------------------ | ----------------------------- | ------------------------ | ----------------------- | ------------------------------ |
+| Snapshot, administrator               | 6,099 / 14,259                 | 5,716 / 7,036                 | 7.21 / 17.01             | 7.92 / 9.21             | 1,011 / 2,474 / 580            |
+| Snapshot, pilot (two of six aircraft) | 5,947 / 13,819                 | 3,784 / 5,104                 | 7.17 / 16.91             | 4.69 / 5.98             | 96 / 619 / 287                 |
+| Snapshot, owner                       | 1,711 / 2,215                  | 1,759 / 1,759                 | 1.02 / 1.29              | 1.04 / 1.04             | 39 / 75 / 75                   |
+| Snapshot, board                       | 1,784 / 2,288                  | 1,832 / 1,832                 | 1.04 / 1.31              | 1.06 / 1.06             | 47 / 83 / 83                   |
+| The window's history alone            |                                | 2,823 / 2,823                 |                          | 4.91 / 4.91             | 355                            |
 
 - **Flat apart from H5.** The window's own reads, and the owner's and board's snapshots, are the same each year. The administrator's and pilot's grow by exactly the parts requests, purchase orders and flight plans a year adds (660 rows, 0.64 MiB at this volume), which H5 keeps complete; `historyCost.test.ts` pins both.
 - **Year 1 reads more than before for an administrator.** The fixture dates every newest-year cost entry the day before seeding, so the window keeps that whole year of work orders, and the load reads job cards changed in the window twice: once to find their orders, then with all of each order's cards. A program whose costs are entered as work is done keeps far fewer.
-- **Index ranges now follow the kept records,** one per kept job card's evidence and four per kept work order, not history: 2,474 for the administrator, of Convex's 4,096, against the plan's 1,000. The 900 lookups of inventory files per stock and component record were already over it.
+- **Index ranges follow the kept work orders,** five per kept order (its job cards, archived cards, costs, files and evidence), not history. S7 read a range per kept job card's evidence and per stock and component record's inventory files: 2,474 for the administrator, of Convex's 4,096. Since S8 evidence carries its card's work order and an inventory file its item's program (`convex/fileColumns.ts`), and the administrator's snapshot reads 580 at this volume (the pilot's 619 to 287), with the same documents; [Measured at 20 fleet-years](#measured-at-20-fleet-years-s8) has the load test's counts.
 
 The screens S6 left:
 
@@ -264,11 +264,70 @@ The screens S6 left:
 
 In this order, each until it reports 0 (see the README's [one-off steps](../README.md#one-off-steps-for-deployments-with-older-data)):
 
-1. `migrations:backfillHistoryColumns`, which also fills S7's `changedAt` and `latestAt`;
+1. `migrations:backfillHistoryColumns`, which also fills S7's `changedAt` and `latestAt`, and S8's work order on job-card evidence and program on inventory files;
 2. `migrations:rebuildRecordNumbers`;
 3. `migrations:rebuildCostLedger`, then check that `migrations:reconcileCostLedger` logs no differences.
 
 The snapshot is correct before step 1, only larger; the history pages refuse rows without S2's columns until it runs.
+
+## Measured at 20 fleet-years (S8)
+
+The load test's history-paging sweep (`scripts/loadtest/paging.sh`, [its README](../scripts/loadtest/README.md#the-history-paging-sweep)) loaded 1, 3, 10 and 20 years of the size test's program into a local backend, ran the release steps after each import, and measured every operation below with the backend's own counts: bytes read as the 16 MiB limit counts them, index ranges, and user time. The volume is the generator's: 6 aircraft; per aircraft and year 300 flights, 60 flight plans, 30 problem reports, 12 work orders of 15 job cards, 30 parts requests, 20 purchase orders, 10 component movements and recurring AD compliance; 100 components, 30 inspections and 40 ADs per aircraft, and 300 stock records. Times are a shared four-core machine's, not Convex's cloud. Measured 20 Nov 2026, with S8's file reads.
+
+The plan's bar is 4 MiB read, 1,000 index ranges and 250 ms, a quarter of each limit. MiB read / index ranges / user ms:
+
+| Operation                                   | 1 year           | 3 years          | 10 years           | 20 years             |
+| ------------------------------------------- | ---------------- | ---------------- | ------------------ | -------------------- |
+| Snapshot, administrator                     | 7.47 / 404 / 478 | 9.12 / 412 / 636 | 15.06 / 420 / 908  | refused: 16 MiB read |
+| Snapshot, mechanic                          | 7.44 / 405 / 393 | 9.12 / 413 / 473 | 15.13 / 421 / 823  | refused: 16 MiB read |
+| Snapshot, pilot of two aircraft             | 4.99 / 225 / 252 | 6.66 / 229 / 387 | 12.65 / 233 / 639  | refused: 16 MiB read |
+| Snapshot, owner                             | 1.78 / 114 / 127 | 2.00 / 114 / 137 | 2.78 / 114 / 207   | 3.88 / 114 / 217     |
+| Snapshot, board                             | 1.82 / 120 / 189 | 2.04 / 120 / 179 | 2.82 / 120 / 279   | 3.92 / 120 / 338     |
+| Work order save                             | 1.20 / 101 / 114 | 1.43 / 101 / 126 | 2.20 / 101 / 156   | 3.31 / 101 / 199     |
+| Job card save                               | 0.91 / 60 / 87   | 0.99 / 60 / 92   | 1.30 / 60 / 109    | 1.74 / 60 / 105      |
+| Job card evidence (filing)                  | 0.02 / 43 / 41   | 0.02 / 43 / 54   | 0.02 / 43 / 40     | 0.02 / 43 / 59       |
+| Part unit cost                              | 0.90 / 63 / 81   | 1.00 / 64 / 94   | 1.32 / 65 / 132    | 1.78 / 66 / 147      |
+| AD save                                     | 1.06 / 56 / 104  | 1.28 / 56 / 108  | 2.07 / 56 / 147    | 3.20 / 56 / 173      |
+| Parts request save, numbered (H5)           | 1.69 / 66 / 133  | 2.92 / 66 / 216  | 7.18 / 66 / 382    | 13.29 / 66 / 703     |
+| Purchase order save, numbered (H5)          | 1.33 / 44 / 112  | 2.42 / 44 / 167  | 6.22 / 44 / 428    | 11.66 / 44 / 606     |
+| New work order, numbered                    | 1.14 / 86 / 117  | 1.36 / 86 / 142  | 2.14 / 86 / 186    | 3.24 / 86 / 191      |
+| New job card, numbered                      | 0.95 / 79 / 94   | 1.05 / 80 / 93   | 1.37 / 81 / 131    | 1.82 / 82 / 110      |
+| Weekly summary, 7 days                      | 5.69 / 52 / 106  | 7.96 / 56 / 141  | 10.40 / 60 / 204   | 13.02 / 64 / 290     |
+| Weekly summary, 31 days or more (cut short) | 12.04 / 73 / 206 | 14.41 / 77 / 219 | 14.39 / 80 / 293   | 14.96 / 83 / 247     |
+| `history.flights`, first or deep page       | 0.07 / 50 / 71   | 0.07 / 50 / 51   | 0.07 / 50 / 77     | 0.07 / 50 / 72       |
+| `history.discrepancies`, first or deep page | 0.05 / 45 / 45   | 0.05 / 45 / 43   | 0.05 / 45 / 88     | 0.05 / 45 / 59       |
+| `history.workOrders`, first or deep page    | 2.39 / 165 / 170 | 3.39 / 216 / 219 | 3.39 / 216 / 207   | 3.39 / 216 / 283     |
+| `history.workOrder`, oldest year            | 0.06 / 54 / 86   | 0.06 / 54 / 70   | 0.06 / 54 / 65     | 0.06 / 54 / 52       |
+| `history.records`, 100 from the oldest year | 0.16 / 171 / 54  | 0.16 / 171 / 67  | 0.16 / 171 / 66    | 0.16 / 171 / 85      |
+| `history.costReport`, this year             | 0.10 / 48 / 72   | 0.10 / 48 / 64   | 0.10 / 48 / 92     | 0.10 / 48 / 69       |
+| New flight                                  | 1.08 / 67 / 132  | 1.33 / 67 / 162  | 2.20 / 67 / 172    | 3.45 / 67 / 222      |
+| Held flight accepted, oldest year (S9)      | 1.20 / 363 / 117 | 2.10 / 964 / 213 | 5.26 / 3,065 / 550 | refused: 1 s         |
+
+The history queries are the administrator's; the mechanic's and the two-aircraft pilot's read the same or less, apart from time (a work-order page up to 299 ms). The parts request's reserve and issue read as its save does.
+
+**The pass criteria are not met.**
+
+- **Every operation succeeds at 20 years:** no. The administrator's, mechanic's and pilot's snapshots are refused past 16 MiB read, and accepting a held flight from the oldest year passes one second (S9, not built). Everything else succeeds.
+- **The snapshot at 20 years within 10% of year 1:** no, for any role. The administrator's grows 0.85 MiB read a year (4.94 to 11.21 MiB returned from 1 to 10 years); the owner's and board member's grow too (0.24 to 0.63 and 0.68 to 1.57 MiB returned from 1 to 20 years).
+- **Four times headroom:** index ranges yes for every operation but the held-flight review; bytes and time no. The administrator's snapshot reads 7.47 MiB at year 1, over the 4 MiB bar before history grows at all, and 478 ms.
+
+**Why the snapshot grows.** The window's own reads are flat, as `historyCost.test.ts` holds. What grows is what stays complete. Per year at this volume, in returned JSON: parts requests 0.31 MB, flight plans 0.23 MB and purchase orders 0.14 MB (H5, about 85% of the growth), then the ADs' compliance history 0.07 MB and component movement records 0.03 MB, which ADR-0013 keeps complete too; the ADs are all of the owner's and board's growth. At this rate the administrator's snapshot passes 16 MiB at about 11 years (not 13, as S7 projected from the unit fixture) and one second at about the same time on this machine. Windowing closed requests, orders and plans (H5) would keep it under 16 MiB for 20 years (an estimated 9 to 10 MiB read), but not under 4 MiB or within 10% of year 1 while ADs and component history stay complete and the window itself reads about 7 MiB; that is Aaron's call.
+
+**Other findings.**
+
+- The parts request and purchase order saves read every request and order (H5): over 4 MiB from about five years, and 703 and 606 ms at 20.
+- The Weekly summary reads 5.7 MiB for seven days at one year and grows with the collections it loads whole; a period long enough to reach its 4,000-row cut reads about 15 MiB at every size, close to the 16 MiB limit, because the change-log rows are large.
+- A page of older work orders reads 3.4 MiB with each order's job cards and takes up to 299 ms.
+
+**Index ranges, before and after S8** (load test; the unit fixture's are under [The windowed workspace](#the-windowed-workspace-s7)):
+
+| Snapshot              | 1 year, S7 / S8 | 3 years, S7 / S8 | 10 years, S7 / S8 |
+| --------------------- | --------------- | ---------------- | ----------------- |
+| Administrator         | 1,793 / 404     | 1,803 / 412      | 1,808 / 420       |
+| Mechanic              | 895 / 405       | 905 / 413        | 915 / 421         |
+| Pilot of two aircraft | 387 / 225       | 392 / 229        | 397 / 233         |
+
+S7 read one range per stock and component record for an administrator (900 here) and one per kept job card (541); S8 reads files by program and by work order, so the count is about 140, plus 14 per aircraft, plus 5 per kept work order (fitted to the administrator's and the two-aircraft pilot's counts), whatever the number of files or of records that hold them. At this maintenance rate, about six kept orders per aircraft, it reaches the 1,000 bar at about 20 aircraft; by the same fit S7's count would have reached Convex's 4,096 at about 16. Bytes and documents read are unchanged, and the snapshot is the same (`snapshotWindow.test.ts`, `fileLinkRules.test.ts`).
 
 ## Lookups by uuid the window can break
 
@@ -400,7 +459,7 @@ Not lookups by uuid, but lists and totals that shrink with the window, for S6 an
 - **The work order save writes no ledger rows.** The brief named it for archived and linked cards, but archiving keeps a card's work order and a work order save links no existing card; a job card joining an order (`taskCards.save`) writes them.
 - **Board budgets and cost settings read rows written before the `kind` column too.** `budgetAndSettingsDocs` (`convex/workingSet.ts`) adds one range for rows the backfill has not filled, so a budget is never missed before it runs.
 - **`history.costReport` joins the paged queries in `convex/history.ts`.** S4 and S5 each added the file; the merge keeps one module with one pattern: `checkContext` first, then "History not found." for an aircraft or record the caller cannot read.
-- **The snapshot is not flat in years while H5 holds (S7).** The plan's target, a 20-year snapshot within 10% of year 1, assumed every growing collection windowed. Parts requests, purchase orders and flight plans stay complete (H5) and add 0.64 MiB a year at the size test's volume, so an administrator's snapshot passes 16 MiB at about 13 years. The window's own reads are flat; revisiting H5 is what remains.
+- **The snapshot is not flat in years while H5 holds (S7, measured in S8).** The plan's target, a 20-year snapshot within 10% of year 1, assumed every growing collection windowed. Parts requests, purchase orders and flight plans stay complete (H5), and with ADs' compliance history and component movements the administrator's snapshot grows 0.85 MiB read a year in the load test, past 16 MiB at about 11 years (S7 projected 13 from the unit fixture). The window's own reads are flat; revisiting H5 is what remains, and even then the 4 MiB bar is missed from year 1.
 - **S7 needs three columns, not one.** Besides the closed work order's `changedAt` the plan named, a cost record's `changedAt` and a flight's `latestAt` (above); the one backfill fills all three.
-- **Index ranges grow with the kept records (S7).** Files and evidence are read by kept record rather than every file of an aircraft, which bounds documents by the window but costs one range per kept job card. A `workOrderUuid` column on evidence would read them by order instead.
+- **Index ranges grew with the kept records (S7), and follow the kept work orders since S8.** Files and evidence were read by kept record rather than every file of an aircraft, which bounds documents by the window but cost one range per kept job card and per stock or component record. Evidence now copies its card's work order and an inventory file its item's program, so they read by order and by program; the copies are derived, kept in step on upload, when a card joins an order and when a transfer moves an item, and filled and corrected by the backfill. Before the backfill the snapshot also reads every file row without its copy, across programs, as it reads rows without the window's columns: larger, never short.
 - **A plan departing before the window leaves the queue (S7).** Whether it flew is older history; the history list looks it up, and a plan that old is copied rather than flown.

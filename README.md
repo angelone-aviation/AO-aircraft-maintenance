@@ -332,7 +332,7 @@ Until it runs, those older files still show: the workspace snapshot reads them t
 
 History paging (stages S2 to S7) adds three one-off steps. Run them in this order after deploying it, and again after restoring any backup, each until it reports 0:
 
-1. `migrations:backfillHistoryColumns`, the derived columns, S7's `changedAt` and `latestAt` among them;
+1. `migrations:backfillHistoryColumns`, the derived columns, S7's `changedAt` and `latestAt` among them, and each job-card evidence file's work order and inventory file's program;
 2. `migrations:rebuildRecordNumbers`, the number rows;
 3. `migrations:rebuildCostLedger`, the cost ledger; then check that `npx convex run migrations:reconcileCostLedger` answers `differing: 0` and logs no "The cost ledger differs from its records."
 
@@ -370,7 +370,7 @@ _En route: keeping it flying._
 
 - **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code. A [second review](docs/security/review-2026-11-04.md) on 2026-11-04 found nothing Critical or High; its fixes are merged and its open items are listed there. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 - **Bug hunts**: two full rounds of testing before real records begin, on [3 November](docs/qa/bug-hunt-2026-11-03/README.md) and [10 November](docs/qa/bug-hunt-2026-11-10/README.md). Each lists every finding, its fix or the decision it waits on, and a script that reproduces it.
-- **Known limit**: the workspace loads a Flight Program's whole history in one request, and Convex caps each request at 16 MiB read. At about 300 flights a year per aircraft on six aircraft, administrators and pilots reach that cap after about two years of records. If the load fails, the app shows a page saying so instead of a blank screen. Loading older history page by page is planned; the measurements and the design are in the [10 November bug hunt](docs/qa/bug-hunt-2026-11-10/README.md).
+- **Known limit**: the workspace loads a retention window of history, and older records page in ([history paging](docs/history-paging.md), ADR-0013). Parts requests, purchase orders and flight plans still load whole (decision H5), with ADs' compliance history and component movements, and Convex caps each request at 16 MiB read. At the size test's volume (six aircraft, 300 flights, 30 parts requests and 20 purchase orders a year each) an administrator's, mechanic's or pilot's workspace reaches that cap after about 11 years of records ([measured](docs/history-paging.md#measured-at-20-fleet-years-s8)); more purchasing brings it sooner. If the load fails, the app shows a page saying so instead of a blank screen.
 - **Recurring tasks**: the quarterly and yearly upkeep is in the [recurring tasks table](docs/go-live-checklist.md#recurring-tasks).
 
 ### Runbooks
