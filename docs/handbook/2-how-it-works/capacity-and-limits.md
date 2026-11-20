@@ -1,14 +1,30 @@
 # Capacity and limits
 
+[Handbook](../README.md)
+
 How much the app can hold, what was measured, and when to look again. The full tables are in [history paging](../../history-paging.md#measured-at-20-fleet-years-s8-h5-release).
 
 ## The short answer
 
 - At the load test's size, **20 years of records** load and save. Every workspace load succeeds. The heaviest, the administrator's, reads **8.84 MiB of Convex's 16 MiB** limit.
 - It grows about **0.08 to 0.11 MiB a year**. At that rate the limit is about a hundred years away.
+- Before history paging (released 20 Nov 2026) the workspace stopped loading at about two fleet-years ([size test](../../qa/bug-hunt-2026-11-10/README.md#size-test)).
 - **One known exception:** accepting a held flight from the oldest year replays that aircraft's flights and passes Convex's one-second limit at about 20 years (S9, set aside on 20 Nov).
 - A Summary of a month can say "cut short" at 20 years; a year is cut short at every size.
 - Measured on a local Convex backend on a shared four-core machine, not on Convex's cloud. Cloud timing is **not known**.
+
+The administrator's workspace, in MiB read per load. The bars are today's measurements; the line is Convex's 16 MiB limit:
+
+```mermaid
+xychart-beta
+  title "Administrator workspace: MiB read per load"
+  x-axis "Fleet-years of records" [1, 3, 10, 20]
+  y-axis "MiB read" 0 --> 18
+  bar [7.27, 7.37, 7.88, 8.84]
+  line [16, 16, 16, 16]
+```
+
+Source: the [20-year measurements](#the-20-year-measurements) below. Before history paging there is nothing to plot past two years: the 10 Nov size test read 9.5 MB at one year, 16.0 MB at two (already over one second) and passed 16 MiB at three.
 
 ## The size measured
 
@@ -64,11 +80,11 @@ MiB read / index ranges / milliseconds, from [history paging](../../history-pagi
 
 Against the plan's pass criteria:
 
-| Criterion                              | Met?                                                                                                                                         |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Every operation succeeds at 20 years   | All but the held-flight review from the oldest year                                                                                          |
-| 20-year workspace within 10% of year 1 | No, but growth is small (7.27 → 8.84 MiB)                                                                                                    |
-| 4× headroom on every limit             | Index ranges yes (except the held-flight review). Bytes no: workspaces read 4.45–7.27 MiB from year 1. Time no for workspaces (up to 632 ms) |
+| Criterion                              | Met?                                                                                                                                                                                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every operation succeeds at 20 years   | All but the held-flight review from the oldest year                                                                                                                                                                                     |
+| 20-year workspace within 10% of year 1 | No, but growth is small (7.27 → 8.84 MiB)                                                                                                                                                                                               |
+| 4× headroom on every limit             | Index ranges yes (except the held-flight review). Bytes no: the administrator's, mechanic's and pilots' workspaces read 4.45–7.27 MiB from year 1. Time no for workspaces (up to 632 ms) and, at 20 years, several saves (up to 321 ms) |
 
 ## Storage and backup size
 
