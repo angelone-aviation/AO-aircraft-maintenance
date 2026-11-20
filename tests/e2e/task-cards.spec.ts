@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins job cards: a linked card's notes, evidence, parts and
- *   signoffs; a new card's signing advice and completion-date hint;
- *   inspector signoff only with an approved maintenance certificate on file;
+ *   signoffs; a new card's signing advice and completion-date hint; no
+ *   signoff offered until a completion date is saved; inspector signoff
+ *   only with an approved maintenance certificate on file;
  *   the stock picker's usable quantities and expired lots; and no
  *   unreachable scrolling region on an empty list.
  * Layer: Test. Playwright spec against the demo in a production build.
@@ -18,6 +19,8 @@ const NEW_CARD_SIGNING =
   "Save the job card first: Task status unlocks after the first save. Then change it to Ready or In progress and save again before signing.";
 const COMPLETION_DATE_HINT =
   "Required for technician and inspection signoff — today or earlier. Completing without one is refused.";
+const NO_COMPLETION_DATE =
+  "Enter a completion date (today or earlier) before signing or completing this job card.";
 const INSPECTOR_HINT =
   "Add your certificate type and number under My certifications to sign as inspector.";
 const PENDING_HINT =
@@ -190,6 +193,52 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
   await expect(
     editor.getByLabel("Notes / remarks", { exact: true }),
   ).toHaveValue("Pressure stable at 15 psi.");
+});
+
+test("offers no technician or inspection signoff until a completion date is saved", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/task-cards");
+  await page.getByRole("button", { name: "New job card", exact: true }).click();
+  const draft = page.getByRole("dialog", { name: "New job card", exact: true });
+  await draft.getByLabel("Card number (automatic if blank)").fill("TC-UNDATED");
+  await draft.getByLabel("Title", { exact: true }).fill("Brake wear check");
+  await saveButton(draft).click();
+  const editor = page.getByRole("dialog", {
+    name: "Job card TC-UNDATED",
+    exact: true,
+  });
+  await editor
+    .getByLabel("Task status", { exact: true })
+    .selectOption("in-progress");
+  await saveButton(editor).click();
+  for (const name of ["Technician signoff", "Inspection signoff"]) {
+    const sign = editor.getByRole("button", { name, exact: true });
+    await expect(sign).toBeDisabled();
+    await expect(sign).toHaveAccessibleDescription(NO_COMPLETION_DATE);
+  }
+  await editor
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  const row = page.getByRole("row").filter({ hasText: "TC-UNDATED" });
+  for (const name of ["Technician signoff", "Inspection signoff"]) {
+    const sign = row.getByRole("button", { name, exact: true });
+    await expect(sign).toBeDisabled();
+    await expect(sign).toHaveAttribute("title", NO_COMPLETION_DATE);
+  }
+  // With today's date saved, the technician signoff is offered and recorded.
+  await row
+    .getByRole("button", { name: "Details for TC-UNDATED", exact: true })
+    .click();
+  await editor.getByLabel("Completion date", { exact: true }).fill(localDate());
+  await saveButton(editor).click();
+  await editor
+    .getByRole("button", { name: "Technician signoff", exact: true })
+    .click();
+  await expect(editor.getByText(/Technician: Alex Morgan/)).toBeVisible();
 });
 
 test("inspection signoff waits for a certificate on file, technician signoff does not", async ({

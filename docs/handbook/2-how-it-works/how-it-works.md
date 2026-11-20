@@ -115,7 +115,7 @@ stateDiagram-v2
   Completed --> [*]
 ```
 
-- Signing needs a completion date of today or earlier; the app fills in today when it is blank.
+- A saved completion date (today or earlier) is needed before the technician or inspection signoff; until then both signoff buttons are disabled, with the reason beside them.
 - A content edit or new evidence clears every signoff; a new technician signoff clears the inspection signoff; setting a card back to Draft clears them all (OD-1). Any other status change keeps them. Cleared signoffs stay in the change log.
 - Completed and canceled cards are read-only. A work order cannot close while a card on it is neither.
 
@@ -160,7 +160,7 @@ Why:
 
 - 14 CFR 91.417(a)(2) status records must be kept current, and 91.417(b)(2) keeps them for the life of the aircraft ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)). Nothing is deleted; old records are archived and hidden ([ADR-0004](../../adr/0004-logbook-generator-and-status-record-system.md)).
 - An FAA inspector (91.417(c)) or a buyer (91.419) gets the records with their history in the [records package](../../records-export.md).
-- The log is protected by limited database access and locked off-site backups (their set-up is not finished: [risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-are-not-running-yet)), not by hash chaining ([ADR-0005](../../adr/0005-audit-log-protection-by-access-and-backups.md), [ADR-0010](../../adr/0010-one-convex-administrator.md)). A direct database edit is banned except a restore or a written repair, and is recorded by hand with `audit:recordManualEntry` ([database access](../../runbooks/database-access.md)).
+- The log is protected by limited database access and locked off-site backups (set up, but no run or restore proven yet: [risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-are-set-up-but-not-proven-yet)), not by hash chaining ([ADR-0005](../../adr/0005-audit-log-protection-by-access-and-backups.md), [ADR-0010](../../adr/0010-one-convex-administrator.md)). A direct database edit is banned except a restore or a written repair, and is recorded by hand with `audit:recordManualEntry` ([database access](../../runbooks/database-access.md)).
 - Transfers between programs add links (`transferredAudit`); they never re-tag old rows ([Flight Program access](../../flight-program-access.md#explicit-transfers)).
 
 Who sees which rows follows the same rules as the records themselves ([change history](../../change-history.md)).
