@@ -1,5 +1,7 @@
 # How the code is structured
 
+[Handbook](../README.md)
+
 A guide for developers to the repository, its layers, and how a request moves through them. It builds on [CONTEXT.md](../../../CONTEXT.md), the system map and boundary rules. Where the two overlap, CONTEXT.md is the source and this page links to it. Rules for every change are in [CONSTRAINTS.md](../../../CONSTRAINTS.md). Words such as Flight Program, permission group and job card mean what [GLOSSARY.md](../../../GLOSSARY.md) says.
 
 Verified against the code on 20 Nov 2026, after Google and Microsoft sign-in were removed ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)).

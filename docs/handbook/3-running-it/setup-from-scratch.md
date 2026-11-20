@@ -1,11 +1,13 @@
 # Set up Angel One from scratch
 
+[Handbook](../README.md)
+
 This guide takes you from no accounts and no code to a working live app and a working local copy, in order. Every name, secret, variable and command below is the one the code and workflows use. Long procedures stay in their runbooks and are linked, not copied.
 
 - What each service is for and what it costs: [services and costs](../4-money-and-risk/services-and-costs.md).
 - How the pieces fit together: [system overview](../1-start-here/system-overview.md).
 - Where every key lives and how to replace it: [credentials](credentials.md).
-- Aaron is the one Convex administrator and approves every release ([ADR-0010](../../adr/0010-one-convex-administrator.md)).
+- Aaron is the one Convex administrator ([ADR-0010](../../adr/0010-one-convex-administrator.md)).
 
 Never put a real key, password or token in the repository, an issue or a chat: the repository is public. Secrets go only into the dashboards named below.
 
@@ -201,10 +203,10 @@ The site is the Vite build in `dist/`, served by Workers Static Assets (`wrangle
 
 Create each under Settings → **Environments** → **New environment** ([docs](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)). Deployment branches: **selected branches, `main` only**. Put secrets on the environment, never as repository secrets.
 
-| Environment  | Rules                                                                     |
-| ------------ | ------------------------------------------------------------------------- |
-| `production` | Required reviewer: Aaron (public repository, so available on GitHub Free) |
-| `backups`    | **No** required reviewers: they would hold every nightly run              |
+| Environment  | Rules                                                                                                                               |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `production` | Optional required reviewer (free on a public repository). Not set on Angel One's production today: Deploy starts by itself after CI |
+| `backups`    | **No** required reviewers: they would hold every nightly run                                                                        |
 
 Every secret and variable the workflows read:
 
@@ -228,12 +230,12 @@ Every secret and variable the workflows read:
 
 ### 5.2 What the workflows do
 
-| Workflow                                      | When                                                                               | What                                                                                                                                                                                                                                                                                                                                                      |
-| --------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **CI** (`ci.yml`)                             | Every pull request and push to `main`; no secrets                                  | Standards check on changed files, `npm run check`, Prettier on the docs, `npm run test:backup`, Playwright; plus **Dependency audit (production)** (`npm audit --omit=dev --audit-level=high`) and **Secret scan (gitleaks)** 8.30.1 over all history, checksum-pinned. Exceptions live only in `.gitleaks.toml`                                          |
-| **Deploy** (`deploy.yml`)                     | After a green CI push to `main`, or by hand from `main` with the backup box ticked | Releases only the **newest** commit on `main`, and only with green CI for it (a manual run checks; an old run re-run deploys nothing). Runs `npm run check`, `npx convex deploy` (which builds the site against production and pins the CSP), checks the build, `wrangler deploy` tagged with the commit, then the smoke check if `PRODUCTION_URL` is set |
-| **First-time setup** (`first-time-setup.yml`) | By hand, once                                                                      | See 5.3                                                                                                                                                                                                                                                                                                                                                   |
-| **Nightly backup** (`backup.yml`)             | 08:41 UTC daily, or by hand                                                        | See [section 7](#7-backups)                                                                                                                                                                                                                                                                                                                               |
+| Workflow                                      | When                                                                               | What                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **CI** (`ci.yml`)                             | Every pull request and push to `main`; no secrets                                  | Standards check on changed files, `npm run check`, Prettier on the docs, `npm run test:backup`, Playwright; plus **Dependency audit (production)** (`npm audit --omit=dev --audit-level=high`) and **Secret scan (gitleaks)** 8.30.1 over all history, checksum-pinned. Test values are allowed only in `.gitleaks.toml`; a rotated real secret's fingerprint goes in `.gitleaksignore` ([release runbook](../../runbooks/release.md#what-runs-where)) |
+| **Deploy** (`deploy.yml`)                     | After a green CI push to `main`, or by hand from `main` with the backup box ticked | Releases only the **newest** commit on `main`, and only with green CI for it (a manual run checks; an old run re-run deploys nothing). Runs `npm run check`, `npx convex deploy` (which builds the site against production and pins the CSP), checks the build, `wrangler deploy` tagged with the commit, then the smoke check if `PRODUCTION_URL` is set                                                                                              |
+| **First-time setup** (`first-time-setup.yml`) | By hand, once                                                                      | See 5.3                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Nightly backup** (`backup.yml`)             | 08:41 UTC daily, or by hand                                                        | See [section 7](#7-backups)                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Full detail, emergency override and rollback: [release runbook](../../runbooks/release.md).
 
@@ -242,12 +244,12 @@ Full detail, emergency override and rollback: [release runbook](../../runbooks/r
 1. Fill in the `production` environment (5.1), including `PRODUCTION_URL` and `FIRST_ADMIN_PASSWORD`.
 2. Actions → **First-time setup** → **Run workflow** → branch `main`, the administrator's name and email, tick **This is a new, empty production deployment**. It refuses a deployment that has users, then runs `setup:auth` with `SITE_URL` = `PRODUCTION_URL`, `npx convex deploy`, and `setup:admin`. Safe to rerun until the administrator exists.
 3. Delete `FIRST_ADMIN_PASSWORD` from the environment.
-4. Take a Convex backup (dashboard → Backups → **Backup now**) and save the environment variables ([backup runbook](../../runbooks/backup-restore.md)), then Actions → **Deploy** → **Run workflow** from `main`, tick the backup box. CI must be green for the newest commit. (Any push to `main` before step 1 starts a Deploy that fails for lack of secrets; that is harmless.)
+4. Take a Convex backup (dashboard → Backups → **Backup now**) and check the password-manager copy of `CREDENTIALS_ENCRYPTION_KEY` is current ([backup runbook](../../runbooks/backup-restore.md#when-an-environment-variable-changes)), then Actions → **Deploy** → **Run workflow** from `main`, tick the backup box. CI must be green for the newest commit. (Any push to `main` before step 1 starts a Deploy that fails for lack of secrets; that is harmless.)
 5. Sign in at `PRODUCTION_URL`. Then run the [one-off migrations](#8-one-off-migrations).
 
 ### 5.4 Repository settings
 
-1. **Branch protection** for `main` ([docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)): require a pull request and the status checks **Check and browser tests**, **Dependency audit (production)** and **Secret scan (gitleaks)**.
+1. **Branch protection** for `main` (off on Angel One today by Aaron's decision, [risks R21](../4-money-and-risk/risks.md#r21-branch-protection-is-off); [docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)): require a pull request and the status checks **Check and browser tests**, **Dependency audit (production)** and **Secret scan (gitleaks)**.
 2. Settings → **Code security**: turn on Dependabot alerts and security updates ([docs](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configure-security-updates)). Weekly version updates come from `.github/dependabot.yml` (grouped minor and patch, seven-day cooldown). Merge them one at a time: each merge deploys.
 3. Settings → Code security → **CodeQL analysis** → **Set up** → **Default** ([docs](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configure-code-scanning)). Free on a public repository.
 4. Aaron: profile picture → Settings → Notifications → **System** → **Actions**: Email, **Only notify for failed workflows**. Then Actions → Nightly backup → **···** → **Disable workflow**, then **Enable workflow**, so failure emails reach him ([why](../../runbooks/backup-restore.md#who-is-told-when-it-fails)).
@@ -285,7 +287,7 @@ Policy: daily off-site copies kept 90 days, monthly copies forever ([ADR-0008](.
 3. [Lifecycle rule](https://developers.cloudflare.com/r2/buckets/object-lifecycles/): delete `daily/` objects after 91 days.
 4. R2 → **Manage API tokens** → [create a token](https://developers.cloudflare.com/r2/api/tokens/) with **Object Read & Write** on that bucket only → `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, plus `R2_ACCOUNT_ID`, as `backups` secrets.
 5. A second Convex production deploy key, generated as in [3.1](#31-create-the-project) → `CONVEX_BACKUP_DEPLOY_KEY`. Allow exactly `deployment:backups:create`, `deployment:backups:download`, `deployment:backups:view` and `deployment:data:view` (for `npx convex export --include-file-storage`) and `deployment:functions:runInternalMutations` (for the internal mutation `backups:recordOffsiteCopy`). Add `deployment:env:view` only when you turn encryption on (`npx convex env list`).
-6. **Encryption.** Leave `BACKUP_AGE_PUBLIC_KEY` unset: each copy is stored unencrypted as `.unencrypted.zip`, with its four sign-in tables emptied and no `env/` copy ([what a plain copy holds](../../adr/0014-backups-stored-unencrypted.md#what-a-copy-holds), [how to turn encryption on](../../runbooks/backup-restore.md#to-turn-encryption-on)). Keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager: nothing else saves it.
+6. **Encryption.** Leave `BACKUP_AGE_PUBLIC_KEY` unset: each copy is stored unencrypted as `.unencrypted.zip`, with its four sign-in tables emptied and no `env/` copy ([what a plain copy holds](../../adr/0014-backups-stored-unencrypted.md#what-a-copy-holds), [how to turn encryption on](../../runbooks/backup-restore.md#to-turn-encryption-on)). Recommended: keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager: nothing else saves it.
 7. Optional: the readable Dropbox workbook ([runbook](../../runbooks/dropbox-records-copy.md)).
 8. Actions → **Nightly backup** → **Run workflow**. Check: the run is green, the `.unencrypted.zip` and its manifest are in R2 under `daily/` (and `monthly/` for the month's first copy) with nothing in `env/`, and **Settings → System → Off-site backups** shows it.
 9. Do the first [restore rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal) and log it. Repeat quarterly.
@@ -303,7 +305,7 @@ Run these after the first deploy, after **any** restore, and after a release tha
 | 4   | `migrations:reconcileCostLedger`    | `differing: 0`, and no "The cost ledger differs from its records." in the logs |
 
 - **Dashboard:** production deployment → **Functions** → `migrations` → pick the function → **Run function**; leave the arguments `{}` → **Run** ([docs](https://docs.convex.dev/dashboard/deployments/functions)).
-- **Terminal**, with the deploy key in the shell only: `npx convex run migrations:backfillHistoryColumns`, and so on (the key selects production; with dashboard login use `--prod`).
+- **Terminal**, signed in to Convex (`npx convex login`): `npx convex run --prod migrations:backfillHistoryColumns`, and so on. During first-time set-up, with the new deploy key still in the shell, drop `--prod`: the key selects production. Afterwards the deploy keys live only in GitHub ([credentials](credentials.md)).
 
 Why each exists: [history paging](../../history-paging.md#before-deploying-s7).
 
@@ -311,9 +313,9 @@ Why each exists: [history paging](../../history-paging.md#before-deploying-s7).
 
 Sign in as the first administrator, then:
 
-1. **Records time zone:** set `RECORDS_TIME_ZONE` on Convex first if not on US Eastern time ([table](#33-environment-variables)).
-2. **Flight Program:** **Flight Programs** (in the menu) → **Add Flight Program**, with name, address, email, contact and website. Select it in the header. New programs get a **Board (read-only)** group.
-3. **Permission groups:** Administration → Permission groups → one group per role (read, flight, discrepancy, resolve, maintenance, or **Flight Program administrator**; or **Aircraft owner** / **Board member** read-only views), each with **All aircraft in this program** or selected aircraft ([Flight Program access](../../flight-program-access.md)).
+1. **Records time zone:** set `RECORDS_TIME_ZONE` on Convex first if not on US Eastern time ([table](#33-environment-variables)). Angel One's production uses `America/Edmonton`, on Convex and as the `backups` variable.
+2. **Flight Program:** **Flight Programs** (in the menu) → **Add Flight Program**, with name, address, email, contact and website. Select it at the top of the sidebar (under **All sections** on a phone).
+3. **Permission groups:** a new program already has six: Observers, Pilots, Maintenance technicians, Program managers, Aircraft owners and Board (read-only). Administration → Permission groups → edit them or add your own (read, flight, discrepancy, resolve, maintenance, or **Flight Program administrator**; or **Aircraft owner** / **Board member** read-only views), each with **All aircraft in this program** or selected aircraft ([Flight Program access](../../flight-program-access.md)).
 4. **Users:** Administration → Users → create each person and assign programs and groups. Accounts are made by administrators only; there is no public sign-up ([accounts runbook](../../runbooks/accounts.md)).
 5. **Integrations:** Settings → System → **FAA API key and renewal** ([airworthiness](../../airworthiness.md)) and the Geoapify key ([addresses](../../address-verification.md)); Settings → Flight Program → Aircraft Spruce account and labor rate.
 6. **Aircraft:** Aircraft → **Set up an aircraft**: verified opening Hobbs and tach, total-time adjustment, cycles and landings; installed components from [component templates](../../component-templates.md); inspections and AD compliance from the CSV templates (download in the wizard, dry run before saving) ([aircraft setup](../../aircraft-setup.md), [inspection templates](../../inspection-templates.md), [maintenance CSV import](../../maintenance-csv-import.md)).

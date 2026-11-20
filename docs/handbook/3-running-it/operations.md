@@ -1,5 +1,7 @@
 # Operations
 
+[Handbook](../README.md)
+
 How production is released, backed up, watched and repaired. Each section summarises a runbook; the runbook has the exact steps. Setting everything up from nothing is in [Set up from scratch](setup-from-scratch.md). What to do on a schedule is in [Checklists](checklists.md).
 
 | Runbook                                                          | Use it to                                                                     |
@@ -33,13 +35,13 @@ flowchart TD
   Smoke --> Migrate["Run the migrations below<br/>if the pull request says so"]
 ```
 
-Only this workflow publishes the site. Cloudflare's own Git build must stay disconnected, and a build guard (`scripts/cloudflareBuildGuard.ts`) refuses to build there ([release runbook](../../runbooks/release.md#cloudflare)).
+Deploy starts by itself after green CI: no required reviewer is set on the `production` environment today, and branch protection on `main` is off by Aaron's decision ([risks R21](../4-money-and-risk/risks.md#r21-branch-protection-is-off)). Only this workflow publishes the site. Cloudflare's own Git build must stay disconnected, and a build guard (`scripts/cloudflareBuildGuard.ts`) refuses to build there ([release runbook](../../runbooks/release.md#cloudflare)).
 
 Before you merge ([release runbook](../../runbooks/release.md#release)):
 
 - [ ] CI is green on the pull request.
 - [ ] Schema changes accept the documents already stored.
-- [ ] A Convex backup taken (dashboard → Backups → **Backup now**, with file storage) and the environment variables saved.
+- [ ] A Convex backup taken (dashboard → Backups → **Backup now**, with file storage) and the password-manager copy of `CREDENTIALS_ENCRYPTION_KEY` is current.
 
 What Deploy refuses ([`deploy.yml`](../../../.github/workflows/deploy.yml)):
 
@@ -70,18 +72,16 @@ Detail: [release runbook: rollback](../../runbooks/release.md#rollback).
 
 History paging added derived columns and tables. They must be filled after a release that adds derived columns or lookup keys (its pull request says so; done on production after both such releases on 20 Nov 2026, all 0) and **again after every restore** ([history paging](../../history-paging.md#before-deploying-s7), [README](../../../README.md#one-off-steps-for-deployments-with-older-data)).
 
-Run in this order, each until it reports 0, with the production deploy key in the shell only:
+Run the three migrations in this order, each until it reports 0, then the reconcile check. Use the Convex dashboard (Production → **Functions** → `migrations` → **Run function**, arguments `{}`), or a terminal signed in to Convex as Aaron (`npx convex login`):
 
 ```sh
-read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY
-npx convex run migrations:backfillHistoryColumns   # repeat until 0 missing
-npx convex run migrations:rebuildRecordNumbers     # repeat until 0
-npx convex run migrations:rebuildCostLedger        # repeat until 0
-npx convex run migrations:reconcileCostLedger      # must answer differing: 0
-unset CONVEX_DEPLOY_KEY
+npx convex run --prod migrations:backfillHistoryColumns   # repeat until 0 missing
+npx convex run --prod migrations:rebuildRecordNumbers     # repeat until 0
+npx convex run --prod migrations:rebuildCostLedger        # repeat until 0
+npx convex run --prod migrations:reconcileCostLedger      # must answer differing: 0
 ```
 
-The same can be run from the Convex dashboard (Production → Functions). Until they finish:
+The deploy keys live only in GitHub and are not kept to paste here ([credentials](credentials.md)). Until the migrations finish:
 
 | Not yet done             | Effect                                                                                                                                                          |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -120,7 +120,7 @@ flowchart TD
 ```
 
 - **A failed step** stops the run: nothing later happens, no heartbeat is sent, and no copy is ever deleted or overwritten. With a key, the job also saves changed environment variables to `env/` before it records the copy.
-- **Encryption** is off ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)), so keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager and protect the bucket and its token as you would the records ([risks R2](../4-money-and-risk/risks.md#r2-unencrypted-backups)).
+- **Encryption** is off ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)), so (recommended) keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager, and protect the bucket and its token as you would the records ([risks R2](../4-money-and-risk/risks.md#r2-unencrypted-backups)).
 - **Status today:** the bucket, its lock and lifecycle rules, the R2 token, the scoped backup deploy key, the time zone and the failure emails are set up. Still for Aaron to do: the `BACKUP_HEARTBEAT_URL` secret, the first manual run and the first restore rehearsal. Until that run is checked, do not count on an off-site copy ([backup set-up](setup-from-scratch.md#7-backups)).
 - **Check a run:** green in Actions; Settings → System → **Off-site backups** shows the time; the files are in R2.
 - **Who is told:** GitHub emails a failed scheduled run to whoever last changed or re-enabled the workflow; Better Stack alerts on a missed heartbeat (once the `BACKUP_HEARTBEAT_URL` secret is set); system administrators get "Off-site backups" in the digest after 26 hours.
@@ -146,15 +146,15 @@ Cloudflare Bot Fight Mode blocks uptime monitors; it is off. Detail: [monitoring
 
 Set in the Convex dashboard (Settings → Environment Variables) or with `npx convex env set`. Values never go in the repository. The full list, with whether each is required: [set up from scratch](setup-from-scratch.md#33-environment-variables).
 
-| Variable                                                 | Turns on                                                        |
-| -------------------------------------------------------- | --------------------------------------------------------------- |
-| `SITE_URL`                                               | The links in alert emails                                       |
-| `JWT_PRIVATE_KEY`, `JWKS`                                | Sessions                                                        |
-| `CREDENTIALS_ENCRYPTION_KEY`                             | Sealed integration credentials and file-link signing            |
-| `RESEND_API_KEY`, `RESEND_FROM`                          | Alert email                                                     |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Device push                                                     |
-| `RECORDS_TIME_ZONE`                                      | The calendar day for server alerts (default `America/New_York`) |
-| `FILE_SWEEP`                                             | `report` (default), `delete` or `off`                           |
+| Variable                                                 | Turns on                                                                                                                                           |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SITE_URL`                                               | The links in alert emails                                                                                                                          |
+| `JWT_PRIVATE_KEY`, `JWKS`                                | Sessions                                                                                                                                           |
+| `CREDENTIALS_ENCRYPTION_KEY`                             | Sealed integration credentials and file-link signing                                                                                               |
+| `RESEND_API_KEY`, `RESEND_FROM`                          | Alert email                                                                                                                                        |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Device push                                                                                                                                        |
+| `RECORDS_TIME_ZONE`                                      | The calendar day for server alerts (default `America/New_York`; production: `America/Edmonton`, on Convex and in the GitHub `backups` environment) |
+| `FILE_SWEEP`                                             | `report` (default), `delete` or `off`                                                                                                              |
 
 Settings → System → **Deployment status** shows which features are on.
 
