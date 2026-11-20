@@ -261,7 +261,7 @@ Full detail, emergency override and rollback: [release runbook](../../runbooks/r
 1. Resend → [Domains](https://resend.com/domains) → add a sending subdomain, for example `mail.example.org` ([docs](https://resend.com/docs/dashboard/domains/introduction)). A subdomain keeps Resend's records apart from the domain's own mail: the organization's Google Workspace mail is on `angeloneonline.org`, and `angeloneaviation.org` is the website and app only. Which domain production's `RESEND_FROM` uses is not recorded: Aaron should note which domain is verified in Resend in [accounts](../../runbooks/accounts.md).
 2. Add the records Resend lists (DKIM `TXT`, SPF `TXT` and the bounce `MX`) in the sending domain's DNS: Cloudflare for `angeloneaviation.org` ([Resend's Cloudflare guide](https://resend.com/docs/guides/dns/cloudflare)); where `angeloneonline.org`'s DNS is hosted is not recorded. Wait for **Verified**.
 3. Resend → [API keys](https://resend.com/api-keys) → a **Sending access** key for that domain.
-4. On Convex: `RESEND_API_KEY` and `RESEND_FROM` ([table](#33-environment-variables)).
+4. On Convex: `RESEND_API_KEY` and `RESEND_FROM` ([table](#33-environment-variables)). Angel One sends from `angeloneaviation.org`, verified in Resend, with its records in Cloudflare.
 5. Free tier: 100 emails a day; the app spends at most 60 on immediate emails. Limits and logs: [monitoring runbook](../../runbooks/monitoring.md#alerts-by-email-and-on-devices).
 
 ### 6.2 Device alerts (Web Push)

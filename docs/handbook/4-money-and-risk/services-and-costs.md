@@ -109,7 +109,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan            | Free                                                                                                                                                                                               |
 | Price           | Free: 3,000 emails a month, **100 a day**, 3 domains. Pro: $20 a month for 50,000, no daily cap ([pricing](https://resend.com/pricing)). The app caps urgent emails at 60 a day so the digest fits |
 | If it goes away | No alert emails. The bell, the Alerts page and device push keep working. The backup-age warning is email only                                                                                      |
-| Account holder  | Not recorded yet                                                                                                                                                                                   |
+| Account holder  | Shared login `accounts@angeloneonline.org` (signs in with GitHub); Aaron. Sends from `angeloneaviation.org`                                                                                        |
 
 ### Web Push
 
