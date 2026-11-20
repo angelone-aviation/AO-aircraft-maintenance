@@ -1,6 +1,7 @@
 /**
  * Responsibility: Start flight / End flight: verify the aircraft, save the
- *   preflight on this device, and end the flight from that saved preflight.
+ *   preflight on this device, end the flight from that saved preflight, and
+ *   name the flight plans whose preflight can be resumed.
  * Layer: UI. React components; sessions live in this browser's localStorage
  *   until the completed flight is queued.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
@@ -82,6 +83,23 @@ export function FlightSessions(props: FlightSessionsProps = {}) {
   );
 }
 
+/**
+ * The flight plans whose preflight is saved in this browser for the signed-in
+ * pilot and active Flight Program, and not yet logged or queued: opening such
+ * a plan's flight resumes it as End flight, which needs no connection.
+ *
+ * @returns Their plan uuids; empty while saved preflights cannot be read.
+ */
+export function useResumablePlans(): ReadonlySet<string> {
+  const { snapshot, namespace, queue } = useWorkspace();
+  const s = snapshot!;
+  const { sessions } = readSessions(sessionsKey(namespace, s));
+  const plans = sessions
+    .filter((f) => !isRecorded(f.uuid, s, queue))
+    .map((f) => f.input.flightPlanUuid);
+  return new Set(plans.filter((uuid) => uuid !== undefined));
+}
+
 function FlightSessionsForProgram(props: FlightSessionsProps) {
   const flow = useSessionFlow(props);
   return (
@@ -96,9 +114,7 @@ function FlightSessionsForProgram(props: FlightSessionsProps) {
 function useSessionFlow(props: FlightSessionsProps) {
   const { snapshot, namespace, queue } = useWorkspace();
   const s = snapshot!;
-  const store = useStoredSessions(
-    `${SESSIONS_KEY}:${namespace}:${s.user.id}:${activeProgram(s)}`,
-  );
+  const store = useStoredSessions(sessionsKey(namespace, s));
   const dialogs = useSessionDialogs(
     store.loaded.sessions,
     props.plan,
@@ -106,11 +122,22 @@ function useSessionFlow(props: FlightSessionsProps) {
     queue,
   );
   const pick = useAircraftPick(s, props.plan);
-  const recorded = (id: string) =>
-    s.flights.some((f) => f.uuid === id) ||
-    queue.some((q) => q.operation.uuid === id);
+  const recorded = (id: string) => isRecorded(id, s, queue);
   const active = store.sessions.filter((f) => !recorded(f.uuid));
   return { ...props, s, queue, store, ...dialogs, ...pick, recorded, active };
+}
+
+// Preflights are kept per device namespace, pilot and Flight Program.
+function sessionsKey(namespace: string, s: Snapshot) {
+  return `${SESSIONS_KEY}:${namespace}:${s.user.id}:${activeProgram(s)}`;
+}
+
+// A session's flight is recorded once it is in the log or the outbox.
+function isRecorded(id: string, s: Snapshot, queue: QueuedOperation[]) {
+  return (
+    s.flights.some((f) => f.uuid === id) ||
+    queue.some((q) => q.operation.uuid === id)
+  );
 }
 
 function useStoredSessions(key: string) {
@@ -153,9 +180,7 @@ function useSessionDialogs(
     plan &&
     saved.find(
       (f) =>
-        f.input.flightPlanUuid === plan.uuid &&
-        !s.flights.some((flight) => flight.uuid === f.uuid) &&
-        !queue.some((q) => q.operation.uuid === f.uuid),
+        f.input.flightPlanUuid === plan.uuid && !isRecorded(f.uuid, s, queue),
     );
   const [starting, setStarting] = useState(!!plan && !resumed);
   const [ending, setEnding] = useState<FlightSession | undefined>(

@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins Start flight / End flight: which saved preflights are
- *   listed, the checks before a preflight is saved, and what is removed when.
+ *   listed, the checks before a preflight is saved, what is removed when, and
+ *   which plans' preflights can be resumed.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/FlightSession.tsx, react-dom/server,
  *   src/data/demo.ts (seed), src/domain/flightSession.ts.
@@ -20,7 +21,7 @@ import {
 } from "../domain/flightSession";
 import type { FlightPlan } from "../domain/flightPlans";
 import type { FlightInput, QueuedOperation, Snapshot } from "../domain/model";
-import { FlightSessions } from "./FlightSession";
+import { FlightSessions, useResumablePlans } from "./FlightSession";
 
 type SessionId = ReturnType<typeof crypto.randomUUID>;
 type Handlers = { children?: unknown; onClick?: () => unknown };
@@ -255,5 +256,19 @@ describe("FlightSessions", () => {
     const html = render(plan);
     expect(html).not.toContain("Start flight / End flight");
     expect(ui.flightForm!.prefill).toMatchObject({ flightPlanUuid: plan.uuid });
+  });
+
+  it("names the plans whose saved preflight is not yet logged or queued", () => {
+    const OTHER_PLAN = "30000000-0000-4000-8000-000000000002";
+    store([
+      saved(FIRST, 0, { flightPlanUuid: PLAN }),
+      saved(SECOND, 1, { flightPlanUuid: OTHER_PLAN }),
+      saved("40000000-0000-4000-8000-000000000003", 2),
+    ]);
+    ui.workspace.queue = [{ operation: { uuid: SECOND } } as QueuedOperation];
+    const Probe = () => [...useResumablePlans()].join(",");
+    expect(renderToStaticMarkup(h(Probe))).toBe(PLAN);
+    storage.set(key(), "{not json");
+    expect(renderToStaticMarkup(h(Probe))).toBe("");
   });
 });

@@ -16,7 +16,7 @@ import {
   flightPlanImporterVersion,
   flightPlanUploadReport,
 } from "../data/flightPlanDiagnostics";
-import { useMemo, useState, type CSSProperties } from "react";
+import { useId, useMemo, useState, type CSSProperties } from "react";
 import { useWorkspace } from "../data/store";
 import {
   useHistoryPages,
@@ -62,10 +62,12 @@ import {
   Toolbar,
 } from "./design";
 import { OpsSelect } from "./OpsList";
-import { FlightSessions } from "./FlightSession";
+import { FlightSessions, useResumablePlans } from "./FlightSession";
 
 const OLDER_PLAN_UNCHECKED =
   "Departed over 6 months ago; whether it flew needs a connection";
+const START_NEEDS_CONNECTION =
+  "Starting needs a connection: this device's copy of the plan may be out of date.";
 
 type Draft = ParsedPlan & { sourceName: string; sourceHash: string };
 type Group = ReturnType<typeof planGroups>[number];
@@ -77,15 +79,18 @@ type PlanActions = {
   dialogs: Dialogs;
   /** Older plans whose flights were looked up ({@link useOlderPlanFlights}). */
   checked?: ReadonlySet<string>;
+  /** Plans whose preflight is saved on this device ({@link useResumablePlans}). */
+  resumable: ReadonlySet<string>;
 };
 
 /**
  * The Flight plans screen: upload an ICAO flight plan PDF, review it, and see
  * each aircraft's queued plans with the maintenance they would reach.
  *
- * @returns The screen. Uploading and changing plans need a connection and
- *   flight access to the aircraft; maintenance projections always cover an
- *   aircraft's full queue, whatever the search.
+ * @returns The screen. Uploading, changing and starting plans need a
+ *   connection and flight access to the aircraft; resuming a preflight saved
+ *   on this device needs only the access. Maintenance projections always
+ *   cover an aircraft's full queue, whatever the search.
  */
 export function FlightPlans() {
   const { snapshot, online, connected } = useWorkspace();
@@ -93,6 +98,7 @@ export function FlightPlans() {
   const dialogs = usePlanDialogs();
   const upload = usePlanUpload(dialogs.setDraft);
   const [search, setSearch] = useState("");
+  const resumable = useResumablePlans();
   const allowed = (id: string) => can(s, id, "flight") && online && connected;
   return (
     <div className="ops-page">
@@ -114,7 +120,13 @@ export function FlightPlans() {
       <UploadStatus upload={upload} />
       {!online && <OfflineNotice />}
       <PlansHelp />
-      <PlanList s={s} allowed={allowed} dialogs={dialogs} search={search} />
+      <PlanList
+        s={s}
+        allowed={allowed}
+        dialogs={dialogs}
+        resumable={resumable}
+        search={search}
+      />
       <PlanDialogs allowed={allowed} dialogs={dialogs} />
     </div>
   );
@@ -136,6 +148,7 @@ function PlanList(props: PlanActions & { search: string }) {
             allowed={props.allowed}
             dialogs={dialogs}
             checked={checked}
+            resumable={props.resumable}
             group={group}
             index={index}
           />
@@ -355,7 +368,8 @@ function UploadReport({ upload }: { upload: Upload }) {
 function OfflineNotice() {
   return (
     <NoticeBar tone="neutral" icon={WifiSlash}>
-      Reconnect to upload or change plans. Cached projections use the last
+      Reconnect to upload, change or start plans. A flight whose preflight is
+      saved on this device resumes offline. Cached projections use the last
       synchronized aircraft data.
     </NoticeBar>
   );
@@ -562,9 +576,40 @@ function PlanProgress(
   );
   return (
     <>
-      {button("button small soft", "Start / resume flight", dialogs.setLogging)}
+      <FlyButton {...props} />
       {button("button small", "Edit plan", dialogs.setEditing)}
       {button("button small", "Remove", dialogs.setRemoving)}
+    </>
+  );
+}
+
+// Resuming only reopens the preflight saved on this device and queues the
+// ended flight in the outbox, so it works offline. Starting stays online, so
+// a plan another pilot flew, changed or removed since the last sync is never
+// started from a stale copy.
+function FlyButton(props: PlanActions & { plan: FlightPlan }) {
+  const { plan: p, dialogs } = props;
+  const { online, connected } = useWorkspace();
+  const noteId = useId();
+  const permitted = can(props.s, p.aircraftUuid, "flight");
+  const needsConnection =
+    !(online && connected) && !props.resumable.has(p.uuid);
+  const explained = permitted && needsConnection;
+  return (
+    <>
+      <button
+        className="button small soft"
+        disabled={!permitted || needsConnection}
+        aria-describedby={explained ? noteId : undefined}
+        onClick={() => dialogs.setLogging(p)}
+      >
+        Start / resume flight
+      </button>
+      {explained && (
+        <small id={noteId} className="ops-cell-sub ops-cell-note">
+          {START_NEEDS_CONNECTION}
+        </small>
+      )}
     </>
   );
 }
