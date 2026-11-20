@@ -54,14 +54,17 @@ const UNSERVED_TASK = "22222222-2222-4222-8222-222222222222";
 type Command = Record<string, unknown>;
 type Line = Record<string, unknown>;
 
+// The request holding the id is never the newest one here, so only the id
+// can find it.
 it("replays a resent request save, and refuses its request id on another request", async () => {
   const { request, stored } = await purchasing();
   const save = { kind: "save", requestUuid: "r1-save", draft: draft("r1") };
   expect(await request(save)).toBe("r1");
+  await request({ ...save, requestUuid: "r2-save", draft: draft("r2") });
   const first = await stored();
   expect(await request(save)).toBe("r1");
   expect(await stored()).toEqual(first);
-  await expectRefusal(request({ ...save, draft: draft("r2") }), ID_TAKEN);
+  await expectRefusal(request({ ...save, draft: draft("r3") }), ID_TAKEN);
   await expectRefusal(
     request({ ...save, draft: { ...draft("r1"), engineer: "Other" } }),
     ID_TAKEN,
@@ -134,6 +137,7 @@ it("replays a resent order save with every draft in it, and refuses its request 
   ];
   const multi = { kind: "save", requestUuid: "multi", drafts };
   expect(await order(multi)).toEqual(["po1", "po2"]);
+  await order(orderSave("po3", [partLine("pl3", [])]));
   expect(await order(multi)).toEqual(["po1", "po2"]);
   await expectRefusal(order({ ...multi, drafts: [drafts[1]] }), ID_TAKEN);
   await expectRefusal(order(orderAction("issue", "po1", 0, "multi")), ID_TAKEN);
@@ -183,6 +187,7 @@ it("reserves what an order receives for its requests, whose request ids it then 
   expect((await record("r1")).reservations).toEqual([
     { lineUuid: "r1-line", stockUuid: "filter", quantity: 2 },
   ]);
+  await request(save("r2", draft("r2", stockOnly())));
   await expectRefusal(
     request(save("receive-po1-2", draft("r9", stockOnly()))),
     ID_TAKEN,
@@ -300,6 +305,15 @@ it("serves every active list on the aircraft when one is saved, in list order", 
     ["PR-00005", "list-a", unserved],
     ["PR-00006", "list-b", unserved],
   ]);
+  // An occurrence's history holds its own uuid as the request id it was
+  // created under.
+  const first = (await rows(t, "partsRequests")).find(
+    (r) => r.number === "PR-00002",
+  );
+  await expectRefusal(
+    request(save("reused", draft("r9", stockOnly()), first.uuid)),
+    ID_TAKEN,
+  );
 });
 
 // A Flight Program with a store, a filter in stock, two loose serialized
