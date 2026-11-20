@@ -1,6 +1,7 @@
 /**
  * Responsibility: Shows stored files through short-lived links: the hook a
- *   screen asks for a file's link with, and an image drawn from one.
+ *   screen asks for a file's link with, and the image, Open button and named
+ *   link drawn from one.
  * Layer: UI. React hook and component over src/data/fileLinks.ts and the
  *   workspace store; no rules.
  * Dependencies: react, src/data (store, fileLinks), src/domain/fileLinks.
@@ -73,6 +74,56 @@ export function LinkedImage(props: {
   return <img className={props.className} src={url} alt={props.alt} />;
 }
 
+/**
+ * Opens a stored file in a new tab through its link, or says why it cannot
+ * yet.
+ *
+ * @param props.link - The file's link, from useFileLink.
+ * @param props.name - The file's name, in the accessible name ("Open <name>").
+ */
+export function OpenLink({ link, name }: { link: ShownLink; name: string }) {
+  if (!link.url) return <small>{WHY_NOT_OPEN[link.status]}</small>;
+  return (
+    <a
+      className="button small"
+      href={link.url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${name}`}
+    >
+      Open
+    </a>
+  );
+}
+
+/**
+ * A stored file's name, linked to open it in a new tab once its link
+ * arrives, and until then followed by why it cannot be opened yet.
+ *
+ * @param props.file - The file.
+ * @param props.name - Its name, the link text.
+ */
+export function NamedFileLink({ file, name }: { file: FileRef; name: string }) {
+  const link = useFileLink(file, { keepFresh: true });
+  if (link.url)
+    return (
+      <a href={link.url} target="_blank" rel="noreferrer">
+        {name}
+      </a>
+    );
+  return (
+    <span>
+      {name} <small>{WHY_NOT_OPEN[link.status]}</small>
+    </span>
+  );
+}
+
+const WHY_NOT_OPEN: Record<ShownLink["status"], string> = {
+  waiting: "Opening…",
+  offline: "Reconnect to open.",
+  unavailable: "Cannot be opened.",
+  ready: "",
+};
 const WAITING: ShownLink = { url: "", status: "waiting" };
 const OFFLINE: ShownLink = { url: "", status: "offline" };
 const UNAVAILABLE: ShownLink = { url: "", status: "unavailable" };

@@ -3,12 +3,13 @@
  *   the dashboard, resizing it in the browser first.
  * Layer: UI. React component; writes through the workspace backend.
  * Dependencies: react, src/data/store.ts, src/data/backend.ts (types),
- *   src/domain/aircraftPhotos.ts, ./ui.tsx.
+ *   src/domain/aircraftPhotos.ts, ./FileLink.tsx, ./ui.tsx.
  */
 import { useState } from "react";
 import type { Backend } from "../data/backend";
 import { useWorkspace } from "../data/store";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
+import { LinkedImage } from "./FileLink";
 import { errorText } from "./ui";
 
 // Longest edge, in pixels, of the stored JPEG.
@@ -29,10 +30,10 @@ export function AircraftPhoto({ aircraftUuid }: { aircraftUuid: string }) {
   return (
     <section aria-label="Aircraft photo">
       <h3>Dashboard photo</h3>
-      {aircraft?.photoUrl && (
-        <img
+      {aircraft?.hasPhoto && (
+        <LinkedImage
+          file={{ kind: "aircraftPhoto", id: aircraft.uuid }}
           className="aircraft-photo-preview"
-          src={aircraft.photoUrl}
           alt={`${aircraft.registration} photo preview`}
         />
       )}
@@ -41,7 +42,7 @@ export function AircraftPhoto({ aircraftUuid }: { aircraftUuid: string }) {
         for the dashboard.
       </p>
       <PhotoInput disabled={disabled} onFile={photo.upload} />
-      {aircraft?.photoUrl && (
+      {aircraft?.hasPhoto && (
         <button
           type="button"
           className="text-button"

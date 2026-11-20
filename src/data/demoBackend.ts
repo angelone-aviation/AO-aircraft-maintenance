@@ -913,7 +913,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         if (!can(s, aircraftUuid, "maintenance"))
           throw Error("Aircraft maintenance permission required.");
         s.aircraft = s.aircraft.map((a) =>
-          a.uuid === aircraftUuid ? { ...a, photoUrl } : a,
+          a.uuid === aircraftUuid ? { ...a, photoUrl, hasPhoto: true } : a,
         );
       });
     },
@@ -922,7 +922,9 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         if (!can(s, aircraftUuid, "maintenance"))
           throw Error("Aircraft maintenance permission required.");
         s.aircraft = s.aircraft.map((a) =>
-          a.uuid === aircraftUuid ? { ...a, photoUrl: undefined } : a,
+          a.uuid === aircraftUuid
+            ? { ...a, photoUrl: undefined, hasPhoto: undefined }
+            : a,
         );
       }),
     uploadAircraftFile: (aircraftUuid, category, file, link) =>

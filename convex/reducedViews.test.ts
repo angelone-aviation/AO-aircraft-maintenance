@@ -131,16 +131,13 @@ it("gives them none of the workspace", async () => {
   ] as const)
     expect(both[key], key).toBeUndefined();
   expect(both.workOrders?.every((w) => w.tasks.length === 0)).toBe(true);
-  // File links only for the owned aircraft's Form 337 copies and photo.
+  // No file link at all: files open through short-lived links on request,
+  // here only the owned aircraft's Form 337 copies and photo.
   const urls = JSON.stringify(both).match(/https?:\/\/[^"]+/g) ?? [];
-  const allowed = [
-    ...(both.aircraftFiles ?? []).map((f) => f.url),
-    ...both.aircraft.flatMap((a) => (a.photoUrl ? [a.photoUrl] : [])),
-    ...(both.programs ?? []).map((p) => p.website),
-  ];
+  const allowed = (both.programs ?? []).map((p) => p.website);
   expect(urls.filter((url) => !allowed.includes(url))).toEqual([]);
   expect(
-    both.aircraft.filter((a) => a.photoUrl).map((a) => a.uuid),
+    both.aircraft.filter((a) => a.hasPhoto).map((a) => a.uuid),
   ).not.toContain("sample-aircraft-2");
 });
 

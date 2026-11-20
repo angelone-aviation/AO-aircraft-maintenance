@@ -26,8 +26,8 @@ import {
   type AircraftFileLink,
 } from "../domain/aircraftFiles";
 import type { Snapshot } from "../domain/model";
-import { AircraftFileArchiveForm, OpenLink } from "./AircraftFiles";
-import { LinkedImage, useFileLink, type ShownLink } from "./FileLink";
+import { AircraftFileArchiveForm } from "./AircraftFiles";
+import { LinkedImage, OpenLink, useFileLink, type ShownLink } from "./FileLink";
 import { Dialog, NoticeBar } from "./design";
 import { errorText } from "./ui";
 import "../styles/screens/logbook-photos.css";

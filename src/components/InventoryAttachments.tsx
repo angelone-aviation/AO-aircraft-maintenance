@@ -5,19 +5,22 @@
  *   deletions go through the workspace backend.
  * Dependencies: react, src/data/store.ts (useWorkspace),
  *   src/domain/programs.ts (programPermission),
- *   src/domain/inventoryAttachments.ts, src/components/ui.tsx.
+ *   src/domain/inventoryAttachments.ts, src/components/FileLink.tsx,
+ *   src/components/ui.tsx.
  */
-import { useEffect, useState, type MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { useWorkspace } from "../data/store";
 import { programPermission } from "../domain/programs";
 import {
   validateInventoryFile,
   type InventoryAttachment,
 } from "../domain/inventoryAttachments";
+import { useFileLink } from "./FileLink";
 import { AsyncForm, DeleteFileButton, Field } from "./ui";
 
 const BYTES_PER_KB = 1024;
 const DOWNLOAD_URL_LIFETIME_MS = 1000;
+const UNAVAILABLE = "File unavailable. Reconnect and reopen the item.";
 
 // Stable React keys for picked files without changing the File[] shape.
 const fileKeys = new WeakMap<File, string>();
@@ -201,7 +204,10 @@ function Attachment({
   onDelete?: () => Promise<unknown>;
 }) {
   const [downloadError, setDownloadError] = useState("");
-  const url = useViewUrl(file);
+  const { url, status } = useFileLink(
+    { kind: "inventoryFile", id: file.uuid },
+    { keepFresh: true },
+  );
   async function download(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
     setDownloadError("");
@@ -225,7 +231,7 @@ function Attachment({
       {url ? (
         <FileLinks url={url} file={file} onDownload={download} />
       ) : (
-        <p>File unavailable. Reconnect and reopen the item.</p>
+        <p>{status === "waiting" ? "Opening…" : UNAVAILABLE}</p>
       )}
       {onDelete && <DeleteFileButton name={file.name} onDelete={onDelete} />}
       {downloadError && <p role="alert">{downloadError}</p>}
@@ -272,24 +278,8 @@ function FileLinks({
   );
 }
 
-// Browsers block top-level navigation to data: URLs, which demo files use, so
-// those are viewed through a blob URL instead.
-function useViewUrl(file: InventoryAttachment): string {
-  const [url, setUrl] = useState(isDataUrl(file.url) ? "" : file.url);
-  useEffect(() => {
-    if (!isDataUrl(file.url)) {
-      setUrl(file.url);
-      return;
-    }
-    const localUrl = URL.createObjectURL(dataUrlBlob(file.url, file.type));
-    setUrl(localUrl);
-    return () => URL.revokeObjectURL(localUrl);
-  }, [file.url, file.type]);
-  return url;
-}
-
-// The download attribute is ignored on cross-origin links such as Convex
-// storage URLs, so the file is fetched and saved from a blob URL.
+// The download attribute is ignored on cross-origin links such as file
+// links, so the file is fetched and saved from a blob URL.
 async function saveCopy(url: string, name: string): Promise<void> {
   const response = await fetch(url);
   if (!response.ok) throw new Error("Download failed");
@@ -299,16 +289,6 @@ async function saveCopy(url: string, name: string): Promise<void> {
   link.download = name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(downloadUrl), DOWNLOAD_URL_LIFETIME_MS);
-}
-
-function isDataUrl(url: string): boolean {
-  return url.startsWith("data:");
-}
-
-function dataUrlBlob(dataUrl: string, type: string): Blob {
-  const encoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
-  const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
-  return new Blob([bytes], { type });
 }
 
 function fileKey(file: File): string {

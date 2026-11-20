@@ -64,7 +64,7 @@ async function fixture() {
     reader: t.withIdentity(subjects.reader),
   };
 }
-it("stores inventory attachments, returns view URLs only to inventory admins, and rejects wrong scopes", async () => {
+it("stores inventory attachments, lists them only to inventory admins, and rejects wrong scopes", async () => {
   const { t, admin, reader } = await fixture();
   const args = {
     stockUuid: "parts-stock",
@@ -91,7 +91,7 @@ it("stores inventory attachments, returns view URLs only to inventory admins, an
     type: "application/pdf",
     size: args.bytes.byteLength,
   });
-  expect(snapshot!.inventoryAttachments![0].url).toBeTruthy();
+  expect(snapshot!.inventoryAttachments![0]).not.toHaveProperty("url");
   expect(snapshot!.audit.some((a) => a.action === "inventory.attachment")).toBe(
     true,
   );

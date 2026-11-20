@@ -103,7 +103,7 @@ function listedIds(s: Snapshot, kind: Kind): string[] {
   const uuids = (files?: { uuid: string }[]) =>
     (files ?? []).map((f) => f.uuid);
   if (kind === "aircraftPhoto")
-    return s.aircraft.filter((a) => a.photoUrl).map((a) => a.uuid);
+    return s.aircraft.filter((a) => a.hasPhoto).map((a) => a.uuid);
   if (kind === "aircraftFile") return uuids(s.aircraftFiles);
   if (kind === "workOrderFile") return uuids(s.workOrderAttachments);
   if (kind === "taskEvidence") return uuids(s.taskEvidence);

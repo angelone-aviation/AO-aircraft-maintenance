@@ -20,7 +20,7 @@ import {
   validateAircraftFile,
   type AircraftFile,
 } from "../domain/aircraftFiles";
-import { useFileLink, type ShownLink } from "./FileLink";
+import { OpenLink, useFileLink } from "./FileLink";
 import { Switch } from "./design";
 import { errorText, useRevealError } from "./ui";
 import "../styles/screens/dashboard.css";
@@ -235,30 +235,6 @@ function FileDetails({ file }: { file: AircraftFile }) {
         </small>
       )}
     </span>
-  );
-}
-
-/**
- * Opens a stored file in a new tab through its link, or says why it cannot
- * yet.
- *
- * @param props.link - The file's link, from useFileLink.
- * @param props.name - The file's name, in the accessible name ("Open <name>").
- */
-export function OpenLink({ link, name }: { link: ShownLink; name: string }) {
-  if (link.status === "offline") return <small>Reconnect to open.</small>;
-  if (link.status === "unavailable") return <small>Cannot be opened.</small>;
-  if (!link.url) return <small>Opening…</small>;
-  return (
-    <a
-      className="button small"
-      href={link.url}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={`Open ${name}`}
-    >
-      Open
-    </a>
   );
 }
 

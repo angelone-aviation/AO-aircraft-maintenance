@@ -15,7 +15,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import { runCommand, hydrate, errorsOf, requestOf } from "./runCommand";
 import { Rejection } from "../src/domain/rejection";
 import { decode } from "./collections";
@@ -323,14 +323,15 @@ export const saveDiscrepancyParts = mutation({
 });
 
 // A reduced view is already its whitelist, so only what is named here is
-// added: the backup time for the board, and for an owner the photo and the
-// documents of the aircraft their owner groups name. No other file URL is.
+// added: the backup time for the board, and for an owner the photo flag and
+// the documents of the aircraft their owner groups name. No file carries a
+// link (convex/fileLinks.ts issues them on request).
 async function addReducedViewExtras(ctx: QueryCtx, snapshot: Snapshot) {
   if (isBoardView(snapshot))
     snapshot.offsiteBackupAt = (await latestCopy(ctx))?.completedAt;
   if (!isOwnerView(snapshot)) return snapshot;
   const owned = ownerPortalAircraft(snapshot);
-  const withPhotos = await withPhotoUrls(ctx, owned);
+  const withPhotos = await withPhotoFlags(ctx, owned);
   snapshot.aircraft = snapshot.aircraft.map(
     (a) => withPhotos.find((photo) => photo.uuid === a.uuid) ?? a,
   );
@@ -350,7 +351,7 @@ async function workspaceSnapshot(
   state: ProgramState,
 ): Promise<Snapshot> {
   const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity, state));
-  snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
+  snapshot.aircraft = await withPhotoFlags(ctx, snapshot.aircraft);
   snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
   snapshot.workOrderAttachments = await workOrderAttachments(
     ctx,
@@ -523,19 +524,16 @@ async function programRecords(ctx: QueryCtx, program: string | undefined) {
   };
 }
 
-async function withPhotoUrls(ctx: QueryCtx, aircraft: Aircraft[]) {
+// Says which aircraft have a photo, never where it is stored: files open
+// through short-lived links (convex/fileLinks.ts).
+async function withPhotoFlags(ctx: QueryCtx, aircraft: Aircraft[]) {
   return Promise.all(
     aircraft.map(async (a) => {
       const photo = await ctx.db
         .query("aircraftPhotos")
         .withIndex("aircraft", (q) => q.eq("aircraftUuid", a.uuid))
         .unique();
-      return {
-        ...a,
-        photoUrl: photo
-          ? ((await ctx.storage.getUrl(photo.storageId)) ?? undefined)
-          : undefined,
-      };
+      return photo ? { ...a, hasPhoto: true } : a;
     }),
   );
 }
@@ -553,17 +551,14 @@ async function inventoryAttachments(ctx: QueryCtx, snapshot: Snapshot) {
         .query("inventoryFiles")
         .withIndex("stock", (q) => q.eq("stockUuid", stock.uuid))
         .collect();
-      return Promise.all(
-        files.map(async (f) => ({
-          uuid: f._id,
-          stockUuid: f.stockUuid,
-          name: f.name,
-          type: f.type,
-          size: f.size,
-          uploadedAt: f.uploadedAt,
-          url: await fileUrl(ctx, f.storageId),
-        })),
-      );
+      return files.map((f) => ({
+        uuid: f._id,
+        stockUuid: f.stockUuid,
+        name: f.name,
+        type: f.type,
+        size: f.size,
+        uploadedAt: f.uploadedAt,
+      }));
     }),
   );
   return lists.flat();
@@ -582,17 +577,14 @@ async function workOrderAttachments(
         .collect(),
     (f) => f.workOrderUuid,
   );
-  return Promise.all(
-    workOrders.flatMap((w) =>
-      (files.get(w.uuid) ?? []).map(async (f) => ({
-        uuid: f._id,
-        workOrderUuid: w.uuid,
-        name: f.name,
-        size: f.size,
-        uploadedAt: f.uploadedAt,
-        url: await fileUrl(ctx, f.storageId),
-      })),
-    ),
+  return workOrders.flatMap((w) =>
+    (files.get(w.uuid) ?? []).map((f) => ({
+      uuid: f._id,
+      workOrderUuid: w.uuid,
+      name: f.name,
+      size: f.size,
+      uploadedAt: f.uploadedAt,
+    })),
   );
 }
 
@@ -609,18 +601,15 @@ async function taskEvidence(
         .collect(),
     (f) => f.taskCardUuid,
   );
-  return Promise.all(
-    cards.flatMap((t) =>
-      (files.get(t.uuid) ?? []).map(async (f) => ({
-        uuid: f._id,
-        taskCardUuid: t.uuid,
-        name: f.name,
-        size: f.size,
-        uploadedAt: f.uploadedAt,
-        category: f.category,
-        url: await fileUrl(ctx, f.storageId),
-      })),
-    ),
+  return cards.flatMap((t) =>
+    (files.get(t.uuid) ?? []).map((f) => ({
+      uuid: f._id,
+      taskCardUuid: t.uuid,
+      name: f.name,
+      size: f.size,
+      uploadedAt: f.uploadedAt,
+      category: f.category,
+    })),
   );
 }
 
@@ -650,9 +639,6 @@ async function filesByRecord<F extends { _creationTime: number }>(
   }
   return byRecord;
 }
-
-const fileUrl = async (ctx: QueryCtx, storageId: Id<"_storage">) =>
-  (await ctx.storage.getUrl(storageId)) ?? "";
 
 interface SubmissionState {
   aircraft: Doc<"aircraft">;

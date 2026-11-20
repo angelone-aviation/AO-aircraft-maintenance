@@ -93,6 +93,9 @@ export interface Member {
  * time (GLOSSARY "Total time").
  */
 export interface Aircraft {
+  /** Set when it has a dashboard photo, which opens through its link. */
+  hasPhoto?: boolean;
+  /** The demo's stored copy of that photo, as a data URL; never from the server. */
   photoUrl?: string;
   twin?: boolean;
   turbine?: boolean;

@@ -7,9 +7,9 @@
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
  *   overview, readings, rejection, remainingMeters, flightHours, deferrals),
- *   ./design, ./OverviewCharts, ./TermTip and the aircraft, flight, flight
- *   readiness, logbook photo, paper check, parts, remaining meter and FAA
- *   components.
+ *   ./design, ./FileLink, ./OverviewCharts, ./TermTip and the aircraft,
+ *   flight, flight readiness, logbook photo, paper check, parts, remaining
+ *   meter and FAA components.
  */
 import {
   lazy,
@@ -113,6 +113,7 @@ import {
   type IconType,
   type Tone,
 } from "./design";
+import { LinkedImage } from "./FileLink";
 import "../styles/screens/dashboard.css";
 
 // The AD screen module is large; load its alerts panel after first paint.
@@ -1093,12 +1094,12 @@ function CardHead({
           </span>
         </p>
       </div>
-      {a.photoUrl ? (
-        <img
+      {a.hasPhoto ? (
+        <LinkedImage
+          file={{ kind: "aircraftPhoto", id: a.uuid }}
           className="dash-card-photo"
-          src={a.photoUrl}
           alt={`${a.registration} aircraft`}
-          loading="lazy"
+          fallback={<AircraftArt className="dash-card-art" />}
         />
       ) : (
         <AircraftArt className="dash-card-art" />
