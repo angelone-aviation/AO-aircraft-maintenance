@@ -2,7 +2,7 @@
 
 The workspace keeps a retention window of history; older flights, problem reports and work orders load page by page ([ADR-0013](adr/0013-history-retention-window.md), decision D3, finding SZ-1). This page holds the window's rule, the read counts it is measured against, and every lookup by uuid the window can break, with what each one should do.
 
-Status, 20 Nov 2026: the rule exists in the domain and is tested (`src/domain/retention.ts`), the baseline is recorded (`convex/historyCost.test.ts`), every row the window will index carries its derived columns, with a backfill for older rows (S2, below), and the saves load a bounded working set instead of whole history, with numbering read from `recordNumbers` (S3, below). Nothing calls the rule yet; the workspace still loads full history.
+Status, 20 Nov 2026: the rule exists in the domain and is tested (`src/domain/retention.ts`), the baseline is recorded (`convex/historyCost.test.ts`), every row the window will index carries its derived columns, with a backfill for older rows (S2, below), the saves load a bounded working set instead of whole history, with numbering read from `recordNumbers` (S3, below), and the board and the cost report total spending from `costLedger` (S4, below). Nothing calls the rule yet; the workspace still loads full history.
 
 ## The window
 
@@ -64,7 +64,7 @@ The window's queries need indexes on fields that live inside a record's JSON pay
 Two tables are declared: S3 fills the first, S4 the second. Neither holds records: both are rebuilt from the records, and neither writes the change log.
 
 - `recordNumbers`: every work order and live job card number by aircraft (`aircraftUuid`, `kind`, `key`, `uuid`), indexed by `[aircraftUuid, kind, key]` and by `uuid`. Keyed by aircraft, the numbers move with an aircraft's records.
-- `costLedger`: work-order spending by day (`programUuid`, `aircraftUuid`, `workOrderUuid`, `date`, `laborSeconds`, `laborCents`, `partsCents`, `otherCents`), indexed by `[programUuid, aircraftUuid, date]` and by `workOrderUuid`. Where an issued part's price comes from is decision D13's, so S2 assumes nothing about `partsCents`.
+- `costLedger`: work-order spending by day (`programUuid`, `aircraftUuid`, `workOrderUuid`, `date`, `laborSeconds`, `laborCents`, `partsCents`, `otherCents`), indexed by `[programUuid, aircraftUuid, date]` and by `workOrderUuid`. S4 fills it ([Cost ledger](#cost-ledger-s4)).
 
 Writes that bypassed `encode` now go through it: job-card evidence (`convex/taskCards.ts`), template copies and their progress (`convex/workOrderCopies.ts`), task-file imports (`convex/taskImports.ts`), recurring parts requests (`convex/recurringParts.ts`), purchase-order receipts' request updates (`convex/purchaseOrders.ts`) and the sample program (`convex/sampleProgram.ts`). Flight submissions and reviews (`convex/operations.ts`), the sample program and the load test's generator set `startedAt`. Every flight read decodes the row first (`decodeFlight`), so the column never reaches a screen or a change-log entry.
 
@@ -130,6 +130,26 @@ npx convex run migrations:rebuildRecordNumbers
 
 It writes each work order's and live job card's missing or stale row, then deletes rows no live record holds, 100 rows per transaction, and answers `{ missing, tables }`: rows written or deleted, in all and by table paged (`recordNumbers` counts the deleted). Run it until `missing` is 0; until then a blank number can repeat one an older record holds. It writes no record and no change-log row, and is safe beside live traffic. A payload its schema refuses stops it with "Cannot derive the columns of <table> row <uuid>.".
 
+## Cost ledger (S4)
+
+`costLedger` holds each work order's cost by day for each program that paid (decision D14): labor time and money, parts and other costs. `workOrderLedger` (`src/domain/costs/ledger.ts`) derives the rows by summing `workOrderCosts` per day with stock costs left out, so over any period they sum to the domain's total at the prices the records fix: labor, other costs, and parts at a manual unit cost, else the price recorded at issue (D13). A part priced only by its stock item's current cost, an issue from before D13 with no manual cost, counts nothing: that cost changes without a cost write, so no stored total could follow it. The board, which cannot read stock costs, totalled parts the same way before.
+
+- **Kept in step** (`convex/costLedger.ts`, `syncWorkOrderLedger`) in the transaction of each write that changes a work order's cost: a cost command, a parts issue (through the cost records D13 writes) and a job card joining a work order. A work order save needs none: archiving a card keeps its work order, and a request on it counts the same live or archived. The rows are derived, so they write no change-log row, and an aircraft's transfer leaves them with the program that paid.
+- **The board** sums each aircraft's rows of the year (one index range per aircraft) for its quarter, year and budget status, and reads only the budgets of the cost records: no job card, parts request or work-order cost record. At three fleet-years of the size test it reads 2,288 documents and 1.31 MiB, against 6,214 and 11.56 MiB before, and returns the same snapshot. It still grows, by the completed work orders and problem reports it reads, which is the window's to bound (S7).
+- **`history.costReport({ aircraftUuid, from, to })`** (`convex/history.ts`) sums an aircraft's rows over a period by work order, with the totals and the aircraft's budgets for the years the period touches. Program administrators only; it refuses an aircraft the caller cannot read with "History not found.", as the other history queries do. The Costs screen still reads the snapshot until S6 moves it here.
+- **History's pages** read the cost records, parts requests and purchase orders their visibility rule needs by uuid, as rows name them, as the Weekly summary has since S3. Past 100 records looked up, a page ends short and resumes where it stopped.
+- **The nightly reconcile** (`migrations:reconcileCostLedger`, 09:37 UTC) compares every work order's rows with its records and logs the work orders that differ, the first 20 by uuid; it changes nothing.
+
+### Rebuilding the cost ledger
+
+After deploying S4, after restoring any backup, after the reconcile logs a difference, and after loading the load test's generated history:
+
+```bash
+npx convex run migrations:rebuildCostLedger
+```
+
+It rewrites each work order's rows for every program that paid, then deletes rows whose work order no longer exists, 100 rows per transaction, and answers `{ missing, tables }`: rows written or deleted, in all and by table paged (`costLedger` counts the deleted). Run it until `missing` is 0; until then the board can show less than was spent. It writes no record and no change-log row, and is safe beside live traffic.
+
 ## Lookups by uuid the window can break
 
 Every place, in `src/`, `convex/` and `scripts/` (tests excluded), that finds a flight, problem report, work order, job card, archived job card or cost record by its uuid, or by a uuid that refers to one, in the workspace snapshot or in a load of full history. Found by reading each of the 278 references to those six collections and the reference fields that point at them (`workOrderUuid`, `flightUuid`, `discrepancyUuid`, `taskCardUuid`, `linkedUuid`), then the callers of each helper.
@@ -182,7 +202,7 @@ These run inside the server's saves, and in the demo, which keeps the full snaps
 | `src/domain/workOrders.ts:588`                    | The work order a command saves                    | Load on demand: by uuid.                                                                                                                                 |
 | `src/domain/taskCards.ts:675`                     | The job card before a save, for the change log    | Load on demand: by uuid.                                                                                                                                 |
 | `src/domain/taskCards.ts:702`                     | The job card a command changes                    | Load on demand: by uuid.                                                                                                                                 |
-| `src/domain/costs/commands.ts:240`                | The cost record before a change                   | Load on demand: S4 loads the order's cost record.                                                                                                        |
+| `src/domain/costs/commands.ts:240`                | The cost record before a change                   | Load on demand: the cost save loads the order's cost record (S3).                                                                                        |
 | `src/domain/partsRequests.ts:648`                 | The work-order item a request is saved against    | Load on demand: by uuid.                                                                                                                                 |
 | `src/domain/partsRequests.ts:682`                 | A request's source report                         | Load on demand: by uuid.                                                                                                                                 |
 | `src/domain/partsRequests.ts:684`                 | A request's source job card                       | Load on demand: by uuid.                                                                                                                                 |
@@ -194,13 +214,13 @@ These run inside the server's saves, and in the demo, which keeps the full snaps
 
 ### Server functions (S3 and S4)
 
-| Where                        | What it looks up                                                     | What should happen                                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `convex/workOrders.ts:245`   | A work order's aircraft, among every order of the program            | Load on demand: use the order `findWorkOrder` already read by uuid (`:236`).                                                               |
-| `convex/taskCards.ts:105`    | The job card an evidence upload is checked against, among every card | Load on demand: by uuid.                                                                                                                   |
-| `convex/taskCards.ts:128`    | The job card an upload is filed on                                   | Load on demand: by uuid.                                                                                                                   |
-| `convex/taskCards.ts:206`    | The job card evidence is removed from                                | Load on demand: by uuid.                                                                                                                   |
-| `convex/auditHistory.ts:199` | Every cost record, for History's visibility rule                     | Load on demand (S4), as `src/domain/programs.ts:493`. The Weekly summary reads them by uuid since S3 (H6); History's pages still read all. |
+| Where                        | What it looks up                                                     | What should happen                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `convex/workOrders.ts:245`   | A work order's aircraft, among every order of the program            | Load on demand: use the order `findWorkOrder` already read by uuid (`:236`).                                                      |
+| `convex/taskCards.ts:105`    | The job card an evidence upload is checked against, among every card | Load on demand: by uuid.                                                                                                          |
+| `convex/taskCards.ts:128`    | The job card an upload is filed on                                   | Load on demand: by uuid.                                                                                                          |
+| `convex/taskCards.ts:206`    | The job card evidence is removed from                                | Load on demand: by uuid.                                                                                                          |
+| `convex/auditHistory.ts:199` | Every cost record, for History's visibility rule                     | Load on demand, as `src/domain/programs.ts:493`: the Weekly summary since S3 (H6) and History's pages since S4 read them by uuid. |
 
 ### Numbering, by number rather than uuid (S3)
 
@@ -233,7 +253,7 @@ Not lookups by uuid, but lists and totals that shrink with the window, for S6 an
 - **Flight log** counts and charts (`src/domain/flightLog.ts:83`) cover loaded flights (H2 labels the search). **Discrepancies** totals (`src/components/Discrepancies.tsx:233`) get the H3 label.
 - **Oil use** (`src/domain/flightFluids.ts:173`, from `Records.tsx:259`): an aircraft's oldest kept flight has no previous flight to measure against.
 - **Suggestions** (`GuidedFlight.tsx:764`, `src/domain/flightSuggestions.ts:40`): an aircraft not flown for six months loses its last destination. The **forecast** (`forecast.ts:393`) falls back to six months of flights.
-- **Costs report and board totals** (`src/domain/costs/report.ts:38`, `:142`; `costs/workOrderCosts.ts:126`) move to the cost report and `costLedger` (S4).
+- **Costs report and board totals** (`src/domain/costs/report.ts:38`, `:142`; `costs/workOrderCosts.ts:126`): the board totals from `costLedger` since S4; the Costs screen moves to `history.costReport` in S6.
 - **Paper check** (`src/domain/reconciliation.ts:150`, `:155`) and the **records package** (`recordsPackage.ts:329`, `:338`, `:414`) use the paged queries (S6, H4).
 - **Owner portal** (`src/components/OwnerPortal.tsx:35`) keeps its own `RECENT_WORK_ORDERS = 5`; S7 should use `RECENT_COMPLETED_WORK_ORDERS` from the domain so the two cannot drift.
 
@@ -254,3 +274,8 @@ Not lookups by uuid, but lists and totals that shrink with the window, for S6 an
 - **Saves need S2's backfill finished.** The plan runs it after S2; if S2 and S3 deploy together, saves must wait for it ([Before deploying S3](#before-deploying-s3)).
 - **A correction refuses past 200 later close-outs, and the Weekly summary past 100 looked-up records.** Both are bounds the plan did not set; each refuses or reports the period cut short rather than read without limit.
 - **The AD save is bounded too.** The brief listed seven saves; the lookup table above lists the AD save's work order check with them.
+- **The ledger cannot price issues from before D13 at the stock's current cost (S4).** D13 kept those issues on the current cost, which moves without a cost write, so the ledger counts them as unpriced, as the board always has. The Costs screen and budget status still price them until S6 moves them to the ledger; recording a price on those older issues first, an audited correction, would keep the two in agreement.
+- **The board now counts every request of the paying program on an order.** It totalled only the requests it could read, those of its aircraft; a request on no aircraft, such as a stock request a work order names, counted on the Costs screen but not on the board. The ledger counts it on both. The volume fixture has none, so the board's snapshot is unchanged.
+- **The work order save writes no ledger rows.** The brief named it for archived and linked cards, but archiving keeps a card's work order and a work order save links no existing card; a job card joining an order (`taskCards.save`) writes them.
+- **`history.costReport` is the first query in `convex/history.ts` on this branch.** S5 adds that file with the paged queries; merging the two branches joins them.
+- **Board budgets and cost settings read rows written before the `kind` column too.** `budgetAndSettingsDocs` (`convex/workingSet.ts`) adds one range for rows the backfill has not filled, so a budget is never missed before it runs.

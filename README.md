@@ -345,6 +345,14 @@ npx convex run migrations:rebuildRecordNumbers
 
 Until it reaches 0, a blank work order or job card number can repeat one an older record holds. Details: [history paging](docs/history-paging.md#rebuilding-the-number-rows).
 
+After deploying stage S4, after restoring any backup, and whenever the nightly reconcile logs "The cost ledger differs from its records.", rebuild the cost ledger the board and the cost report total from. It writes no change-log row and changes no record; it answers how many rows it wrote or deleted. Run it until that count is 0:
+
+```bash
+npx convex run migrations:rebuildCostLedger
+```
+
+Until it reaches 0, the board can show less than was spent. Details: [history paging](docs/history-paging.md#rebuilding-the-cost-ledger).
+
 ## Operations
 
 _En route: keeping it flying._
