@@ -3,7 +3,8 @@
  *   register, compliance records and reports, Word and FAA imports, FAA
  *   monitoring) and the dashboard's AD alerts.
  * Layer: UI. React components; AD rules live in src/domain.
- * Dependencies: src/data (store, adImport, adReport on demand), src/domain
+ * Dependencies: src/data (store, adImport, historyLoads, adReport on
+ *   demand), src/domain
  *   (airworthiness, faa, listSearch and the AD helpers), ./design, ./ui,
  *   ./TermTip and the AD, FAA, parts and ops components.
  */
@@ -33,6 +34,7 @@ import {
 import { useEffect, useReducer, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace, type Workspace } from "../data/store";
+import { loadWorkOrders } from "../data/historyLoads";
 import { can } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import {
@@ -543,8 +545,8 @@ function importWordReport(ad: ADScreen, input: HTMLInputElement) {
 async function saveReport(ad: ADScreen) {
   try {
     // Loaded on demand so the PDF library stays out of startup.
-    const { saveADReport } = await import("../data/adReport");
-    saveADReport(ad.state, ad.aircraft);
+    const report = await import("../data/adReport");
+    report.saveADReport(await reportRecords(ad, report), ad.aircraft);
   } catch (e) {
     ad.setError(errorText(e));
   }
@@ -555,12 +557,24 @@ async function printReport(ad: ADScreen) {
   const tab = window.open("", "_blank");
   try {
     if (!tab) throw Error("Allow pop-ups to print the report.");
-    const { printADReport } = await import("../data/adReport");
-    printADReport(ad.state, ad.aircraft, tab);
+    const report = await import("../data/adReport");
+    report.printADReport(await reportRecords(ad, report), ad.aircraft, tab);
   } catch (e) {
     tab?.close();
     ad.setError(errorText(e));
   }
+}
+
+// A compliance entry can name a work order older than the workspace keeps;
+// while connected it is loaded so the report prints its number, not its id.
+async function reportRecords(
+  ad: ADScreen,
+  report: typeof import("../data/adReport"),
+) {
+  const { backend, online, connected } = useWorkspace.getState();
+  if (!backend || !online || !connected) return ad.state;
+  const named = report.adReportWorkOrders(ad.state, ad.aircraft);
+  return loadWorkOrders(backend, ad.state, named);
 }
 
 function ADStats({ ad }: ADProps) {

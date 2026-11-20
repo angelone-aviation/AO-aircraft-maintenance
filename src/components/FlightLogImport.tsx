@@ -2,14 +2,17 @@
  * Responsibility: The Import logbook button: previews a flight logbook file
  *   and saves its rows as flights.
  * Layer: UI. React component; parsing and planning live in src/domain.
- * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
- *   src/domain/model.ts, src/domain/flightLogImport.ts, ./ui, ./design,
- *   ./engineTrends.css.
+ * Dependencies: react, @phosphor-icons/react, src/data (store,
+ *   historyPages, historyLoads), src/domain (model, flightLogImport,
+ *   retention), ./ui, ./design, ./engineTrends.css.
  */
 import "./engineTrends.css";
 import { useState } from "react";
 import { UploadSimple } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
+import { withHistory } from "../data/historyPages";
+import { loadFlightsBetween } from "../data/historyLoads";
+import { FLIGHT_RETENTION_DAYS, retentionCutoff } from "../domain/retention";
 import {
   can,
   hours,
@@ -45,6 +48,9 @@ interface Preview {
   format: LogbookFormat;
   rows: PlannedRow[];
   otherAircraft: number;
+  /** Offline, rows older than the workspace's flights were checked for
+   * duplicates against this device's flights only. */
+  deviceOnly: boolean;
 }
 type ImportResult = { saved: number; errors: string[] };
 type Draft = ReturnType<typeof usePreviewDraft>;
@@ -167,18 +173,59 @@ async function planLogbookFile(
   const pending = queue.flatMap((q) =>
     q.operation.kind === "flight" ? [q.operation.input] : [],
   );
-  const plan = planLogbookImport(
-    s,
-    parsed.rows,
-    {
-      pilotId: s.user.id,
-      operation: value(data, "operation") as FlightInput["operation"],
-      flightRules: value(data, "rules") as FlightInput["flightRules"],
-    },
-    pending,
-    parsed.format,
+  const options = {
+    pilotId: s.user.id,
+    operation: value(data, "operation") as FlightInput["operation"],
+    flightRules: value(data, "rules") as FlightInput["flightRules"],
+  };
+  const plan = (on: Snapshot) =>
+    planLogbookImport(on, parsed.rows, options, pending, parsed.format);
+  const older = await olderFlights(s, plan(s).rows);
+  return {
+    fileName: file.name,
+    format: parsed.format,
+    ...plan(older.snapshot),
+    deviceOnly: older.deviceOnly,
+  };
+}
+
+// A row older than the workspace's flights (ADR-0013) may repeat a flight
+// only the server holds. Connected, each aircraft's older flights over the
+// rows' dates are loaded for the duplicate check; offline it covers this
+// device, and the preview says so.
+async function olderFlights(s: Snapshot, rows: PlannedRow[]) {
+  const spans = olderSpans(
+    rows,
+    retentionCutoff(Date.now(), FLIGHT_RETENTION_DAYS),
   );
-  return { fileName: file.name, format: parsed.format, ...plan };
+  if (!spans.size) return { snapshot: s, deviceOnly: false };
+  const { backend, online, connected } = useWorkspace.getState();
+  if (!backend || !online || !connected)
+    return { snapshot: s, deviceOnly: true };
+  let snapshot = s;
+  for (const [aircraftUuid, [from, to]] of spans)
+    snapshot = withHistory(snapshot, {
+      ...(await loadFlightsBetween(backend, aircraftUuid, from, to)),
+    });
+  return { snapshot, deviceOnly: false };
+}
+
+// Each aircraft's span of row dates before the cutoff, from the first row's
+// local midnight to the cutoff or the day after the last row.
+function olderSpans(rows: PlannedRow[], cutoff: number) {
+  const spans = new Map<string, [number, number]>();
+  for (const row of rows.filter((r) => !r.error)) {
+    const [year, month, day] = row.date.split("-").map(Number);
+    const from = new Date(year, month - 1, day).getTime();
+    if (!(from < cutoff)) continue;
+    const to = Math.min(new Date(year, month - 1, day + 1).getTime(), cutoff);
+    const span = spans.get(row.aircraftUuid) ?? [from, to];
+    spans.set(row.aircraftUuid, [
+      Math.min(span[0], from),
+      Math.max(span[1], to),
+    ]);
+  }
+  return spans;
 }
 
 // The outbox orders by enqueue time, so each entry waits for a new
@@ -302,6 +349,8 @@ function PreviewSummary({ preview, held }: { preview: Preview; held: number }) {
       {preview.otherAircraft} rows for other aircraft were skipped.
       {held > 0 &&
         ` ${held} selected flights predate existing records or readings and will be held for administrator review.`}
+      {preview.deviceOnly &&
+        " Offline, older rows were checked for duplicates against the flights on this device only."}
     </p>
   );
 }

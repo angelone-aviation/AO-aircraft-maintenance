@@ -12,6 +12,7 @@ import { demoSnapshot } from "./demo";
 import {
   loadAircraftHistory,
   loadFlightsBetween,
+  loadMonthHistory,
   loadWorkOrders,
   loadWorkOrdersSince,
   type HistoryReads,
@@ -123,6 +124,26 @@ describe("loadWorkOrdersSince", () => {
       "2020-01-01",
     );
     expect(uuids(s.workOrders)).toContain("old-order");
+    expect(reads.historyPage).toHaveBeenCalledOnce();
+  });
+});
+
+describe("loadMonthHistory", () => {
+  it("joins the month's flights by local dates and its completed work orders", async () => {
+    const full = fleet();
+    const reads = serverOver(full);
+    const s = await loadMonthHistory(
+      reads,
+      windowOf(full),
+      AIRCRAFT,
+      "2024-12",
+    );
+    expect(reads.flightsInRange).toHaveBeenCalledExactlyOnceWith({
+      aircraftUuid: AIRCRAFT,
+      from: new Date(2024, 11, 1).getTime(),
+      to: new Date(2025, 0, 1).getTime(),
+    });
+    expect(uuids(s.flights)).toContain("old-flight");
     expect(reads.historyPage).toHaveBeenCalledOnce();
   });
 });

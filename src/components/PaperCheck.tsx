@@ -3,20 +3,26 @@
  *   month, then saves the paper check as a PDF or a CSV.
  * Layer: UI. Reads the snapshot it is given; the rows and the PDF are built
  *   in src/domain and src/data.
- * Dependencies: react, @phosphor-icons/react, src/domain/model.ts,
- *   src/data/paperCheckReport.ts (loaded on first export), ./design.tsx,
- *   ./ui.tsx.
+ * Dependencies: react, @phosphor-icons/react, src/domain (model,
+ *   retention), src/data (store, historyLoads, paperCheckReport loaded on
+ *   first export), ./design.tsx, ./ui.tsx.
  *
  * The report module pulls in jsPDF, so it loads only when someone exports.
  */
 import { useState, type SyntheticEvent } from "react";
 import { ListChecks } from "@phosphor-icons/react";
 import { can, localDate, type Snapshot } from "../domain/model";
+import { RETENTION_DAYS, retentionCutoff } from "../domain/retention";
+import { useWorkspace } from "../data/store";
+import { loadMonthHistory } from "../data/historyLoads";
 import { Dialog } from "./design";
 import { Field, download, errorText, useRevealError } from "./ui";
 
 const CSV_TYPE = "text/csv";
 const YEAR_MONTH_LENGTH = "YYYY-MM".length;
+const YEAR_MONTH_PATTERN = /^\d{4}-\d{2}$/;
+const OLDER_MONTH_OFFLINE =
+  "Older records need a connection. Reconnect to check this month.";
 
 type PaperCheckFormat = "pdf" | "csv";
 
@@ -200,16 +206,36 @@ function SaveButtons({
 }
 
 async function savePaperCheck(
-  state: Snapshot,
+  workspace: Snapshot,
   aircraftUuid: string,
   month: string,
   format: PaperCheckFormat,
 ) {
   const report = await import("../data/paperCheckReport");
+  const state = await monthRecords(workspace, aircraftUuid, month);
   const registration =
     state.aircraft.find((a) => a.uuid === aircraftUuid)?.registration ?? "";
   const name = report.paperCheckFileName(registration, month, format);
   if (format === "csv")
     download(name, report.paperCheckCsv(state, aircraftUuid, month), CSV_TYPE);
   else report.paperCheckPdf(state, aircraftUuid, month).save(name);
+}
+
+// The month may be older than the workspace keeps (ADR-0013). Connected, its
+// flights and work orders load whole; offline, a month starting before the
+// window is refused rather than checked against records the device lacks.
+async function monthRecords(
+  workspace: Snapshot,
+  aircraftUuid: string,
+  month: string,
+): Promise<Snapshot> {
+  const { backend, online, connected } = useWorkspace.getState();
+  if (!YEAR_MONTH_PATTERN.test(month)) return workspace;
+  if (backend && online && connected)
+    return loadMonthHistory(backend, workspace, aircraftUuid, month);
+  const [year, number] = month.split("-").map(Number);
+  const start = new Date(year, number - 1, 1).getTime();
+  if (start < retentionCutoff(Date.now(), RETENTION_DAYS))
+    throw new Error(OLDER_MONTH_OFFLINE);
+  return workspace;
 }

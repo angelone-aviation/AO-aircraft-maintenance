@@ -9,7 +9,7 @@
  */
 // @vitest-environment node
 import { test, expect, vi, afterEach } from "vitest";
-import { adReport, printADReport } from "./adReport";
+import { adReport, adReportWorkOrders, printADReport } from "./adReport";
 import { demoSnapshot } from "./demo";
 import { blankAD, blankADTask, type AD } from "../domain/airworthiness";
 import { componentSchema } from "../domain/components";
@@ -239,3 +239,27 @@ if (process.env.AD_REPORT_SNAPSHOT)
       Buffer.from(pdf.output("arraybuffer")),
     );
   });
+
+test("names each work order the aircraft's compliance history cites, once", () => {
+  const s = demoSnapshot();
+  const task = blankADTask();
+  const entry = (workOrderUuid: string) => ({
+    ...complianceEntry(task.uuid),
+    workOrderUuid,
+  });
+  s.airworthiness = [
+    recordedAD(s, "2020-01-01", {
+      tasks: [task],
+      history: [entry("wo-old"), entry(""), entry("wo-old")],
+    }),
+    recordedAD(s, "2021-02-02", { tasks: [task], history: [entry("wo-new")] }),
+    {
+      ...recordedAD(s, "2022-03-03", { history: [entry("wo-other")] }),
+      aircraftUuid: s.aircraft[1].uuid,
+    },
+  ];
+  expect(adReportWorkOrders(s, s.aircraft[0].uuid)).toEqual([
+    "wo-old",
+    "wo-new",
+  ]);
+});

@@ -123,6 +123,37 @@ describe("FlightLogImportButton", () => {
     expect(html).toContain("Possible duplicate");
   });
 
+  it("checks a row older than the workspace's flights against the server's", async () => {
+    const lines = LOGBOOK.trimEnd().split("\n").slice(0, 11);
+    const older = [
+      ...lines,
+      "2020-03-02,N206MA,KPAO,KSQL,,14:30,14:38,15:35,15:42,1.2,1.2,0,1,1,0,0,1,100.0,101.2,,,Old leg",
+    ].join("\n");
+    const flightsInRange = vi.fn(async () => ({
+      flights: [loggedFlight("2020-03-02", 1.2)],
+      members: [],
+    }));
+    hooks.workspace = {
+      ...hooks.workspace,
+      backend: { flightsInRange },
+      online: true,
+      connected: true,
+    };
+    const html = await preview(older);
+    expect(flightsInRange).toHaveBeenCalledExactlyOnceWith({
+      aircraftUuid: "demo-206",
+      from: new Date(2020, 2, 2).getTime(),
+      to: new Date(2020, 2, 3).getTime(),
+    });
+    expect(html).toContain("1 possible duplicates");
+    hooks.workspace = { ...hooks.workspace, online: false };
+    const offline = await preview(older);
+    expect(offline).toContain("0 possible duplicates");
+    expect(offline).toContain(
+      "Offline, older rows were checked for duplicates against the flights on this device only.",
+    );
+  });
+
   it("queues each selected row as the user's flight and lists failures", async () => {
     hooks.workspace.enqueue = async (operation: Operation) => {
       if (queued.length) throw new Error("Queue full.");
@@ -139,3 +170,27 @@ describe("FlightLogImportButton", () => {
     expect(after).toMatch(/Row \d+: Queue full\./);
   });
 });
+
+// A flight already logged on N206MA from KPAO to KSQL at local noon.
+function loggedFlight(date: string, hobbsHours: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  return {
+    uuid: crypto.randomUUID(),
+    aircraftUuid: "demo-206",
+    authorId: s.user.id,
+    pilotId: s.user.id,
+    submittedAt: 0,
+    status: "accepted" as const,
+    startTime: new Date(year, month - 1, day, 12).toISOString(),
+    hobbsOff: 0,
+    hobbsOn: hobbsHours * 3600,
+    landings: 1,
+    cycles: 0,
+    origin: "KPAO",
+    destination: "KSQL",
+    operation: "Mission" as const,
+    flightRules: "VFR" as const,
+    remarks: "",
+    discrepancy: "",
+  };
+}

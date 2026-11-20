@@ -1,7 +1,7 @@
 /**
  * Responsibility: Loads older history whole for the features that need every
- *   record: one aircraft's history, named work orders, flights over a span
- *   and closed work orders back to a date.
+ *   record: one aircraft's history, named work orders, flights over a span,
+ *   closed work orders back to a date, and one month's records.
  * Layer: Data. Async functions over Backend; no React.
  * Dependencies: ./backend (types), ./errors, ./historyPages (merge), src/domain
  *   (retention, historyReads, auditHistory, model types).
@@ -165,6 +165,33 @@ export async function loadWorkOrdersSince(
     return last !== undefined && last < since;
   });
   return withHistory(s, ...pages.map(pageRows));
+}
+
+/**
+ * One aircraft's flights that started, and work orders completed, in a
+ * month, older than the workspace's window or not: what the paper check
+ * lists.
+ *
+ * @param reads - The backend's history reads.
+ * @param s - The workspace snapshot.
+ * @param aircraftUuid - The aircraft.
+ * @param yearMonth - The month as YYYY-MM; flights by this browser's local
+ *   dates, as the paper check counts them.
+ * @returns `s` with the month's records joined.
+ * @throws What the backend throws.
+ */
+export async function loadMonthHistory(
+  reads: HistoryReads,
+  s: Snapshot,
+  aircraftUuid: string,
+  yearMonth: string,
+): Promise<Snapshot> {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const from = new Date(year, month - 1, 1).getTime();
+  const to = new Date(year, month, 1).getTime();
+  const range = await loadFlightsBetween(reads, aircraftUuid, from, to);
+  const flown = withHistory(s, { ...range });
+  return loadWorkOrdersSince(reads, flown, aircraftUuid, `${yearMonth}-01`);
 }
 
 // Reads a list's pages until it is done, `onPage` says to stop, or the page

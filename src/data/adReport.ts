@@ -99,6 +99,22 @@ export function adReport(s: Snapshot, aircraftUuid: string) {
 }
 
 /**
+ * The work orders an aircraft's AD compliance history names, so a work
+ * order older than the workspace keeps can be loaded before the report
+ * prints its number.
+ *
+ * @param s - Snapshot holding the aircraft and its ADs.
+ * @param aircraftUuid - The aircraft.
+ * @returns Each named uuid once, in report order.
+ */
+export function adReportWorkOrders(s: Snapshot, aircraftUuid: string) {
+  const named = listRecords(s, aircraftUuid).flatMap((r) =>
+    r.history.map((h) => h.workOrderUuid),
+  );
+  return [...new Set(named.filter((uuid): uuid is string => !!uuid))];
+}
+
+/**
  * Downloads the {@link adReport} worksheet under its file name.
  *
  * @param s - Snapshot holding the aircraft and its ADs.
