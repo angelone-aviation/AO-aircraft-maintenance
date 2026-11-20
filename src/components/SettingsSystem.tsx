@@ -77,7 +77,7 @@ export function OffsiteBackups() {
   return (
     <Block
       title="Off-site backups"
-      description={`Every night an encrypted copy of all records and files is uploaded to Cloudflare R2. If the newest copy is more than ${STALE_HOURS} hours old, this panel shows a warning; system administrators who get the daily alert email are also emailed, when email is set up.`}
+      description={`Every night a copy of all records and files is uploaded to Cloudflare R2 (not encrypted unless a backup key is set). If the newest copy is more than ${STALE_HOURS} hours old, this panel shows a warning; system administrators who get the daily alert email are also emailed, when email is set up.`}
     >
       {demo ? (
         <p className="set-empty">

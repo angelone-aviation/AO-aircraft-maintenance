@@ -94,6 +94,16 @@ case "$1" in
             printf '{"_id":"u1","name":"Pilot %s"}\n{"_id":"u2","name":"Mechanic"}\n' "$RANDOM" >"$src/users/documents.jsonl"
           printf '{"_id":"a1","tail":"N1"}\n{"_id":"a2","tail":"N2"}\n{"_id":"a3","tail":"N3"}\n' >"$src/aircraft/documents.jsonl"
           echo '{"type":"object"}' >"$src/users/generated_schema.jsonl"
+          # Convex Auth's tables. The session, refresh token, code and
+          # verifier rows carry the fake secrets the plain mode must drop.
+          mkdir -p "$src"/{authAccounts,authSessions,authRefreshTokens,authVerificationCodes,authVerifiers,authRateLimits}
+          printf '{"_id":"acc1","userId":"u1","provider":"password","secret":"$2a$fake-password-hash"}\n' >"$src/authAccounts/documents.jsonl"
+          printf '{"_id":"fake-session-id-71c3","userId":"u1"}\n' >"$src/authSessions/documents.jsonl"
+          printf '{"_id":"fake-refresh-token-id-2d8e","sessionId":"fake-session-id-71c3"}\n{"_id":"fake-refresh-token-id-9a01","sessionId":"fake-session-id-71c3"}\n' >"$src/authRefreshTokens/documents.jsonl"
+          printf '{"_id":"vc1","accountId":"acc1","code":"fake-reset-code-hash-55b2"}\n' >"$src/authVerificationCodes/documents.jsonl"
+          printf '{"_id":"fake-verifier-id-0e4f","signature":"fake-verifier-signature"}\n' >"$src/authVerifiers/documents.jsonl"
+          printf '{"_id":"rl1","identifier":"pilot@example.org","attemptsLeft":5}\n' >"$src/authRateLimits/documents.jsonl"
+          echo '{"type":"object"}' >"$src/authSessions/generated_schema.jsonl"
         fi
         (cd "$src" && zip -qrX "$path" .)
         rm -rf "$src"
@@ -291,29 +301,58 @@ all_age_encrypted() { # all_age_encrypted <bucket folder>
   done
 }
 
+# The Convex Auth tables a plain copy keeps but empties (ADR-0014).
+sign_in_tables=(authSessions authRefreshTokens authVerificationCodes authVerifiers)
+sign_in_secrets=(fake-session-id-71c3 fake-refresh-token-id-2d8e fake-refresh-token-id-9a01 fake-reset-code-hash-55b2 fake-verifier-id-0e4f fake-verifier-signature)
+zip_entry() { unzip -p "$1" "$2" 2>/dev/null; }
+sign_in_tables_empty() { # sign_in_tables_empty <zip>: present, with no rows
+  local table
+  for table in "${sign_in_tables[@]}"; do
+    unzip -Z1 "$1" | grep -qxF "$table/documents.jsonl" || return 1
+    [[ -z "$(zip_entry "$1" "$table/documents.jsonl")" ]] || return 1
+  done
+}
+same_entries_except_sign_in() { # same_entries_except_sign_in <stripped zip> <export>
+  local entry table skip
+  [[ "$(unzip -Z1 "$1" | LC_ALL=C sort)" == "$(unzip -Z1 "$2" | LC_ALL=C sort)" ]] || return 1
+  while IFS= read -r entry; do
+    skip=false
+    for table in "${sign_in_tables[@]}"; do [[ "$entry" != "$table/documents.jsonl" ]] || skip=true; done
+    [[ "$skip" == true ]] || cmp -s <(zip_entry "$1" "$entry") <(zip_entry "$2" "$entry") || return 1
+  done < <(unzip -Z1 "$2")
+}
+sign_in_secrets_absent() { # sign_in_secrets_absent <zip>
+  local listing secret
+  listing=$(unzip -p "$1")
+  for secret in "${sign_in_secrets[@]}"; do
+    ! grep -qF -- "$secret" <<<"$listing" || return 1
+  done
+}
+
 manifest_matches() { # manifest_matches <manifest> <export> <encrypted file> <recorded bytes>
   jq -e --arg sha "$(sha_of "$2")" --argjson plainBytes "$(wc -c <"$2" | tr -d ' ')" \
     --arg encSha "$(sha_of "$3")" --argjson bytes "$4" '
     .plaintext.sha256 == $sha and .plaintext.bytes == $plainBytes
     and .encrypted.sha256 == $encSha and .encrypted.bytes == $bytes
     and .gitCommit == "0123456789abcdef0123456789abcdef01234567" and .convexCliVersion == "1.49.0"
-    and .tables == {"_storage": 1, "aircraft": 3, "users": 2}
+    and .tables == {"_storage": 1, "aircraft": 3, "authAccounts": 1, "authRateLimits": 1, "authRefreshTokens": 2, "authSessions": 1, "authVerificationCodes": 1, "authVerifiers": 1, "users": 2}
     and (.exportStartedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' "$1" >/dev/null
 }
 
-record_matches_contract() { # record_matches_contract <json> <expect monthly: yes|no> <envUploaded>
-  local json=$1 monthly=$2 env_flag=$3 now_ms
+record_matches_contract() { # record_matches_contract <json> <expect monthly: yes|no> <envUploaded> [plain]
+  local json=$1 monthly=$2 env_flag=$3 suffix='\.zip\.age' now_ms
+  [[ "${4:-}" != plain ]] || suffix='\.unencrypted\.zip'
   now_ms=$(($(date -u +%s) * 1000))
-  jq -e --argjson now "$now_ms" --arg monthly "$monthly" --argjson env "$env_flag" '
+  jq -e --argjson now "$now_ms" --arg monthly "$monthly" --argjson env "$env_flag" --arg suffix "$suffix" '
     (keys - ["completedAt","objectKey","bytes","sha256","monthlyKey","envUploaded"] | length == 0)
     and (.completedAt | type == "number" and . == floor and . <= $now and . > $now - 300000)
-    and (.objectKey | test("^daily/[0-9]{4}/[0-9]{2}/[0-9]{2}/angelone-[0-9]{8}T[0-9]{6}Z\\.zip\\.age$"))
+    and (.objectKey | test("^daily/[0-9]{4}/[0-9]{2}/[0-9]{2}/angelone-[0-9]{8}T[0-9]{6}Z" + $suffix + "$"))
     and (.objectKey as $k | ($k | capture("^daily/(?<y>[0-9]{4})/(?<m>[0-9]{2})/(?<d>[0-9]{2})/angelone-(?<s>[0-9]{8})T")) | .s == .y + .m + .d)
     and (.bytes | type == "number" and . == floor and . > 0)
     and (.sha256 | test("^[0-9a-f]{64}$"))
     and (.envUploaded == $env)
     and (if $monthly == "yes"
-         then (.monthlyKey | type == "string" and test("^monthly/[0-9]{4}-[0-9]{2}/angelone-[0-9]{8}T[0-9]{6}Z\\.zip\\.age$"))
+         then (.monthlyKey | type == "string" and test("^monthly/[0-9]{4}-[0-9]{2}/angelone-[0-9]{8}T[0-9]{6}Z" + $suffix + "$"))
               and (.monthlyKey | split("/") | .[2]) == (.objectKey | split("/") | .[4])
               and (.monthlyKey | split("/") | .[1]) == (.objectKey | split("/") | "\(.[1])-\(.[2])")
          else has("monthlyKey") | not end)
@@ -336,6 +375,9 @@ daily_file="$(bucket_dir)/$daily_key"
 check "daily object exists" test -f "$daily_file"
 check "recorded bytes equal the encrypted object's size" test "$(jq .bytes <<<"$rec")" = "$(wc -c <"$daily_file" | tr -d ' ')"
 check "daily object decrypts to a byte-identical copy of the export" decrypts_to "$daily_file" "$state/last-export.zip"
+check "encrypted copy keeps the sign-in tables with their rows" \
+  test "$(age -d -i "$tmp/key.txt" "$daily_file" | (cat >"$tmp/first.zip"; zip_entry "$tmp/first.zip" authSessions/documents.jsonl))" != ""
+check "encrypted manifest names no removed tables" jq -e 'has("signInRecordsRemoved") | not' "${daily_file%.zip.age}.manifest.json"
 check "recorded sha256 is the encrypted object's, as backups:recordOffsiteCopy documents" \
   test "$(jq -r .sha256 <<<"$rec")" = "$(sha_of "$daily_file")"
 check "monthly copy is the same encrypted file" cmp -s "$daily_file" "$(bucket_dir)/$monthly_key"
@@ -344,6 +386,8 @@ check "manifest sits beside the daily object" test -f "$manifest"
 check "manifest sits beside the monthly object" test -f "$(bucket_dir)/${monthly_key%.zip.age}.manifest.json"
 check "manifest records hashes, sizes, commit, CLI version and table counts" \
   manifest_matches "$manifest" "$state/last-export.zip" "$daily_file" "$(jq .bytes <<<"$rec")"
+check "encrypted manifest keeps its fields, in order, and no plain-mode notice" \
+  jq -e 'keys_unsorted == ["format","file","exportStartedAt","gitCommit","convexCliVersion","encryptedTo","plaintext","encrypted","tables"]' "$manifest"
 check "exactly one env/ object, named by the run's time" test "$(object_count '^env/angelone-env-[0-9]{8}T[0-9]{6}Z\.txt\.age$')" = 1
 env_object="$(bucket_dir)/$(objects | grep '^env/')"
 check "env/ object decrypts to the environment variables" decrypts_to "$env_object" "$tmp/env.txt"
@@ -422,6 +466,121 @@ run_backup earlier-month
 check "exits 0" exited_ok
 check "makes this month's copy" record_matches_contract "$(last_record)" yes true
 
+failure_case() { # failure_case <name> <what> [VAR=value...]
+  local name=$1 what=$2
+  shift 2
+  fresh_bucket "$name"
+  run_backup "$name" "$@"
+  check "$what: exits non-zero" exited_failed
+  check "$what: nothing recorded" nothing_recorded
+  check "$what: no plaintext left after exit" no_plaintext_left "$name"
+  check "$what: no secret in the output" no_secrets_in "$out"
+}
+
+echo "# no backup key: plain copies, said plainly (ADR-0014)"
+fresh_bucket plain
+run_backup plain BACKUP_AGE_PUBLIC_KEY=
+check "exits 0" exited_ok
+rec=$(last_record)
+check "record matches the contract, with an .unencrypted.zip key, monthlyKey and envUploaded false" \
+  record_matches_contract "$rec" yes false plain
+plain_key=$(jq -r .objectKey <<<"$rec")
+plain_file="$(bucket_dir)/$plain_key"
+check "daily object is a valid ZIP" unzip -tq "$plain_file"
+check "it empties the sign-in tables but keeps them in the ZIP" sign_in_tables_empty "$plain_file"
+check "no session, refresh token, code or verifier value is left in it" sign_in_secrets_absent "$plain_file"
+check "it keeps users, authAccounts (password hashes) and records" \
+  test "$(zip_entry "$plain_file" users/documents.jsonl | wc -l) $(zip_entry "$plain_file" authAccounts/documents.jsonl | wc -l) $(zip_entry "$plain_file" aircraft/documents.jsonl | wc -l)" = "2 1 3"
+check "it keeps every other entry byte for byte, uploaded files included" \
+  same_entries_except_sign_in "$plain_file" "$state/last-export.zip"
+check "recorded sha256 and bytes are the stored object's, after the sign-in tables were emptied" \
+  test "$(jq -r .sha256 <<<"$rec") $(jq .bytes <<<"$rec")" = "$(sha_of "$plain_file") $(wc -c <"$plain_file" | tr -d ' ')"
+check "monthly copy is the same plain file, also named .unencrypted.zip" \
+  cmp -s "$plain_file" "$(bucket_dir)/$(jq -r .monthlyKey <<<"$rec")"
+check "no .age object is stored" test "$(object_count '\.age$')" = 0
+check "every object name except the manifests says unencrypted" \
+  test "$(objects | grep -cv '\.unencrypted\.\(zip\|manifest\.json\)$' || true)" = 0
+check "no env/ copy: environment variables are never stored unencrypted" test "$(object_count '^env/')" = 0
+check "state/ is untouched" test "$(object_count '^state/')" = 0
+check "the environment variables were never read" fails grep -q '^convex env' "$state/npx-calls.log"
+plain_manifest="${plain_file%.zip}.manifest.json"
+check "manifest sits beside the daily object, named .unencrypted.manifest.json" test -f "$plain_manifest"
+check "manifest says encrypted false, holds no encryptedTo, and warns NOT ENCRYPTED" \
+  jq -e --arg file "${plain_file##*/}" '.encrypted == false and (has("encryptedTo") | not)
+    and (.notice | startswith("NOT ENCRYPTED")) and .file == $file' "$plain_manifest"
+check "manifest checksum and size are the uploaded ZIP's; commit, CLI version and counts match it" \
+  jq -e --arg sha "$(sha_of "$plain_file")" --argjson bytes "$(wc -c <"$plain_file" | tr -d ' ')" '
+    .plaintext == {sha256: $sha, bytes: $bytes} and .format == 1
+    and .gitCommit == "0123456789abcdef0123456789abcdef01234567" and .convexCliVersion == "1.49.0"
+    and .tables == {"_storage": 1, "aircraft": 3, "authAccounts": 1, "authRateLimits": 1, "authRefreshTokens": 0, "authSessions": 0, "authVerificationCodes": 0, "authVerifiers": 0, "users": 2}' "$plain_manifest"
+check "manifest names the emptied sign-in tables and why" \
+  jq -e '.signInRecordsRemoved.tables == ["authSessions","authRefreshTokens","authVerificationCodes","authVerifiers"]
+    and (.signInRecordsRemoved.reason | test("sign in"))' "$plain_manifest"
+check "job summary names the emptied sign-in tables" \
+  grep -qF "Sign-in records removed: authSessions, authRefreshTokens, authVerificationCodes, authVerifiers" "$tmp/summary-plain.md"
+check "job summary heading says NOT ENCRYPTED" grep -qE '^### Off-site backup [0-9T]+Z: NOT ENCRYPTED$' "$tmp/summary-plain.md"
+check "job summary says who can read it" grep -qF "Anyone with the R2 keys or the Cloudflare login can read" "$tmp/summary-plain.md"
+check "job summary says env/ was skipped and why" grep -qF "| env/: skipped, never stored unencrypted (no BACKUP_AGE_PUBLIC_KEY) | |" "$tmp/summary-plain.md"
+check "output says NOT ENCRYPTED" output_says "NOT ENCRYPTED"
+check "no plaintext left in the temp dir after exit" no_plaintext_left plain
+check "no secret in the output, the summary, any manifest or any command line" \
+  no_secrets_in "$out" "$tmp/summary-plain.md" "$plain_manifest" "$state/aws-calls.log" "$state/npx-calls.log"
+check "every R2 call is an object read or write: no ACL, policy, CORS or public-access change" \
+  fails grep -qE -- '--acl|--grant|put-bucket|put-public-access|delete-public-access|website' "$state/aws-calls.log"
+
+echo "# restore helper with a plain object"
+mkdir -p "$tmp/restore-plain"
+cp "$plain_file" "$plain_manifest" "$tmp/restore-plain/"
+restore_plain="$tmp/restore-plain/${plain_file##*/}"
+check "decrypt.sh checks a plain export against its manifest" \
+  output_to "$tmp/out-plain-restore.txt" "$here/decrypt.sh" "$restore_plain"
+check "and says it was not encrypted" grep -qF "not encrypted" "$tmp/out-plain-restore.txt"
+check "and says the checksum matches" grep -qF "SHA-256 matches the manifest" "$tmp/out-plain-restore.txt"
+check "and prints the table counts" grep -qE '^  aircraft +3$' "$tmp/out-plain-restore.txt"
+check "and leaves the file as it was, ready to import" cmp -s "$restore_plain" "$plain_file"
+check "and says everyone signs in again after the restore" grep -qF "everyone must sign in again" "$tmp/out-plain-restore.txt"
+cp "$plain_manifest" "$tmp/plain-manifest.json"
+jq --arg zero "$(printf '0%.0s' {1..64})" '.plaintext.sha256 = $zero' "$tmp/plain-manifest.json" >"$tmp/restore-plain/${plain_manifest##*/}"
+check "decrypt.sh refuses a plain file that does not match its manifest" \
+  fails output_to /dev/null "$here/decrypt.sh" "$restore_plain"
+rm -f -- "$tmp/restore-plain/${plain_manifest##*/}"
+check "decrypt.sh refuses a plain file without its manifest" \
+  fails output_to /dev/null "$here/decrypt.sh" "$restore_plain"
+check "decrypt.sh refuses a key with a plain file" \
+  fails output_to /dev/null "$here/decrypt.sh" "$tmp/key.txt" "$restore_plain"
+
+echo "# second plain night, same month"
+run_backup plain-second BACKUP_AGE_PUBLIC_KEY=
+check "exits 0" exited_ok
+check "record has no monthlyKey and envUploaded false" record_matches_contract "$(last_record)" no false plain
+check "a new daily object, the first one kept" test "$(object_count '^daily/.*\.unencrypted\.zip$')" = 2
+check "no second monthly copy" test "$(object_count '^monthly/')" = 2
+check "still no env/ copy" test "$(object_count '^env/')" = 0
+
+echo "# encryption turned back on by adding the key"
+run_backup plain-then-key
+check "exits 0" exited_ok
+rec=$(last_record)
+check "record is an encrypted .zip.age copy, and the environment is saved at once" \
+  record_matches_contract "$rec" no true
+check "the night's export decrypts with the key" decrypts_to "$(bucket_dir)/$(jq -r .objectKey <<<"$rec")" "$state/last-export.zip"
+check "the env/ copy opens with the key" decrypts_to "$(bucket_dir)/$(objects | grep '^env/')" "$tmp/env.txt"
+check "the summary does not say NOT ENCRYPTED" fails grep -qF "NOT ENCRYPTED" "$tmp/summary-plain-then-key.md"
+check "the summary removes no sign-in records" fails grep -qF "Sign-in records removed" "$tmp/summary-plain-then-key.md"
+
+echo "# plain-mode failures stop before recording"
+failure_case plain-upload-fails "plain: failed upload" BACKUP_AGE_PUBLIC_KEY= FAKE_FAIL_PUT='^daily/.*\.zip$'
+failure_case plain-upload-short "plain: object smaller than the file" BACKUP_AGE_PUBLIC_KEY= FAKE_TRUNCATE_PUT='^daily/.*\.zip$'
+failure_case plain-existing "plain: daily object already there" BACKUP_AGE_PUBLIC_KEY= FAKE_EXISTS='^daily/.*\.zip$'
+check "plain: daily object already there: never overwritten" \
+  fails grep -q " s3 cp .* s3://angelone-backups/daily/" "$state/aws-calls.log"
+failure_case plain-export-no-users "plain: export with no user accounts" BACKUP_AGE_PUBLIC_KEY= FAKE_EXPORT=no-users
+check "plain: export with no user accounts: nothing uploaded" test -z "$(objects)"
+fresh_bucket plain-record-fails
+run_backup plain-record-fails BACKUP_AGE_PUBLIC_KEY= FAKE_RECORD=fail
+check "plain: recording fails after a good backup: exits non-zero and says so" \
+  output_says "backup itself succeeded"
+
 echo "# refusals before anything runs"
 fresh_bucket refusals
 run_backup dev-key CONVEX_DEPLOY_KEY="dev:angelone-test|fake-deploy-key-7f3a9c41"
@@ -433,21 +592,12 @@ check "a missing deploy key is refused" exited_failed
 run_backup private-age-key BACKUP_AGE_PUBLIC_KEY="$(grep '^AGE-SECRET-KEY-' "$tmp/key.txt")"
 check "an age private key in BACKUP_AGE_PUBLIC_KEY is refused" exited_failed
 check "and is not printed" no_secrets_in "$out"
+run_backup blank-age-key BACKUP_AGE_PUBLIC_KEY=" "
+check "a BACKUP_AGE_PUBLIC_KEY that is set but not a public key is refused, not treated as unset" exited_failed
 run_backup no-r2-secret R2_SECRET_ACCESS_KEY=
 check "a missing R2 secret is refused" exited_failed
 check "no Convex or R2 call was made" test ! -s "$state/npx-calls.log" -a ! -s "$state/aws-calls.log"
 check "nothing recorded" nothing_recorded
-
-failure_case() { # failure_case <name> <what> [VAR=value...]
-  local name=$1 what=$2
-  shift 2
-  fresh_bucket "$name"
-  run_backup "$name" "$@"
-  check "$what: exits non-zero" exited_failed
-  check "$what: nothing recorded" nothing_recorded
-  check "$what: no plaintext left after exit" no_plaintext_left "$name"
-  check "$what: no secret in the output" no_secrets_in "$out"
-}
 
 echo "# failures stop before recording"
 failure_case export-fails "failed export" FAKE_EXPORT=fail

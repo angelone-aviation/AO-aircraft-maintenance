@@ -112,6 +112,20 @@ it("records a copy and shows the newest one, with the newest monthly copy, to sy
   expect(await t.run((ctx) => ctx.db.query("audit").collect())).toEqual([]);
 });
 
+it("records a copy stored unencrypted, named .unencrypted.zip (ADR-0014)", async () => {
+  const { t, system } = await setup();
+  const objectKey =
+    "daily/2026/11/20/angelone-20261120T084112Z.unencrypted.zip";
+  const monthlyKey =
+    "monthly/2026-11/angelone-20261120T084112Z.unencrypted.zip";
+  await record(t, { objectKey, monthlyKey, envUploaded: false });
+  expect(await system.query(api.backups.latestOffsiteCopy, {})).toMatchObject({
+    objectKey,
+    monthlyKey,
+    envUploaded: false,
+  });
+});
+
 it("treats a retried call for the same copy as one copy", async () => {
   const { t } = await setup();
   const same = copy();
@@ -144,9 +158,10 @@ it("rejects input that breaks the backup job's contract", async () => {
   for (const [patch, message] of [
     [
       { objectKey: "monthly/2026-11/x.zip.age" },
-      'objectKey must start with "daily/" and end with ".zip.age".',
+      'objectKey must start with "daily/" and end with ".zip.age" or ".unencrypted.zip".',
     ],
-    [{ objectKey: "daily/2026/11/04/x.zip" }, 'end with ".zip.age"'],
+    [{ objectKey: "daily/2026/11/04/x.zip" }, 'end with ".zip.age" or'],
+    [{ objectKey: "daily/.unencrypted.zip" }, "objectKey must start"],
     [{ objectKey: "daily/.zip.age" }, "objectKey must start"],
     [
       { objectKey: "daily/" + "x".repeat(1024) + ".zip.age" },

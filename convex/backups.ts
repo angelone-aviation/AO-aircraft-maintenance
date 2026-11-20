@@ -18,6 +18,9 @@ import type { OffsiteCopy } from "../src/domain/offsiteBackups";
 // R2's and S3's object key limit.
 const MAX_KEY_LENGTH = 1024;
 
+// An encrypted copy, or one stored unencrypted with no backup key (ADR-0014).
+const DAILY_KEY_ENDINGS = [".zip.age", ".unencrypted.zip"];
+
 // The backup job's clock may run a little ahead of the server's.
 const FUTURE_LIMIT_MS = 10 * 60_000;
 
@@ -28,8 +31,9 @@ type Copy = Omit<Doc<"backupRuns">, "_id" | "_creationTime" | "recordedAt">;
  * each upload to R2: `npx convex run backups:recordOffsiteCopy '{...}'`.
  *
  * @param completedAt - When the upload finished, in epoch milliseconds.
- * @param objectKey - The copy's key, starting "daily/" and ending ".zip.age".
- * @param bytes - The encrypted object's size.
+ * @param objectKey - The copy's key, starting "daily/" and ending ".zip.age",
+ *   or ".unencrypted.zip" for a copy stored without encryption (ADR-0014).
+ * @param bytes - The stored object's size.
  * @param sha256 - Its SHA-256, in lowercase hexadecimal.
  * @param monthlyKey - "monthly/…", on the night the copy also made the
  *   monthly archive.
@@ -117,9 +121,9 @@ export const latestOffsiteCopy = query({
 });
 
 function assertCopyContract(copy: Copy, recordedAt: number): void {
-  checkKey(copy.objectKey, "objectKey", "daily/", ".zip.age");
+  checkKey(copy.objectKey, "objectKey", "daily/", DAILY_KEY_ENDINGS);
   if (copy.monthlyKey !== undefined)
-    checkKey(copy.monthlyKey, "monthlyKey", "monthly/");
+    checkKey(copy.monthlyKey, "monthlyKey", "monthly/", [""]);
   if (!/^[0-9a-f]{64}$/.test(copy.sha256))
     throw new Error("sha256 must be 64 lowercase hexadecimal characters.");
   if (!Number.isSafeInteger(copy.bytes) || copy.bytes <= 0)
@@ -132,14 +136,19 @@ function assertCopyContract(copy: Copy, recordedAt: number): void {
     );
 }
 
-function checkKey(key: string, name: string, prefix: string, suffix = "") {
-  if (
-    key.length > MAX_KEY_LENGTH ||
-    !key.startsWith(prefix) ||
-    !key.endsWith(suffix) ||
-    key.length <= prefix.length + suffix.length
-  )
-    throw new Error(
-      `${name} must start with "${prefix}"${suffix ? ` and end with "${suffix}"` : ""}.`,
-    );
+function checkKey(
+  key: string,
+  name: string,
+  prefix: string,
+  endings: string[],
+) {
+  const fits = endings.some(
+    (ending) =>
+      key.endsWith(ending) && key.length > prefix.length + ending.length,
+  );
+  if (key.length <= MAX_KEY_LENGTH && key.startsWith(prefix) && fits) return;
+  const end = endings.filter(Boolean).map((ending) => `"${ending}"`);
+  throw new Error(
+    `${name} must start with "${prefix}"${end.length ? ` and end with ${end.join(" or ")}` : ""}.`,
+  );
 }

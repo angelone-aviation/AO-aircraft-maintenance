@@ -35,7 +35,7 @@ flowchart LR
     Deploy["deploy.yml: after green CI<br/>on main, or by hand"]
     Nightly["backup.yml 08:41 UTC"]
   end
-  R2[("Cloudflare R2<br/>age-encrypted exports")]
+  R2[("Cloudflare R2<br/>exports, unencrypted<br/>unless a key is set")]
   Dropbox[("Dropbox<br/>readable Excel workbook")]
 
   PWA -->|HTTPS app shell| Static
@@ -219,7 +219,7 @@ The 34 terms you meet first. Full definitions and words to avoid: [GLOSSARY.md](
 | Form 337 (not in GLOSSARY.md yet) | FAA major repair and alteration form; copies are kept on the aircraft record and archived, never deleted. |
 | Kept manual (not in GLOSSARY.md yet) | A reference manual stored on the device (Cache Storage) to open offline. |
 | Demo mode | Labelled in-browser mode with fictional data, isolated from live data. |
-| Off-site copy | Nightly encrypted export in R2 (90 days; first of each month forever). |
+| Off-site copy | Nightly export in R2 (90 days; first of each month forever); unencrypted unless a backup key is set (ADR-0014). |
 
 ## 7. Where to look
 
@@ -267,3 +267,4 @@ Decisions ([docs/adr/](docs/adr/)):
 | [0011](docs/adr/0011-readable-records-copy-in-dropbox.md) | Readable records copy in Dropbox. |
 | [0012](docs/adr/0012-urgent-alerts-by-web-push-and-immediate-email.md) | Urgent alerts reach people by Web Push and an immediate email; expiring dates are records. |
 | [0013](docs/adr/0013-history-retention-window.md) | The workspace keeps a retention window of history; older records load page by page. |
+| [0014](docs/adr/0014-backups-stored-unencrypted.md) | Off-site backups are stored unencrypted (Aaron, 20 Nov 2026) unless a backup key is set; the environment variables are then not saved. |

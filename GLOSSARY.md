@@ -256,7 +256,7 @@ _Avoid_: staging server
 A consistent snapshot of every table and uploaded file at one moment. Does not include environment variables.
 
 **Off-site copy**:
-An encrypted backup stored outside Convex, in the program's R2 bucket, locked against deletion for its retention period.
+A backup stored outside Convex, in the program's R2 bucket, locked against deletion for its retention period. Unencrypted, named `.unencrypted.zip`, unless a backup key is set (ADR-0014).
 
 **Monthly archive**:
 The first off-site copy of each month, kept forever for life-of-aircraft retention and tamper evidence.
@@ -265,7 +265,7 @@ The first off-site copy of each month, kept forever for life-of-aircraft retenti
 The quarterly practice restore of a monthly archive into a scratch deployment, with recorded pass criteria.
 
 **Escrowed secrets**:
-The encrypted copy of production environment variables (encryption and sign-in keys) kept with the backups, without which a restore cannot decrypt credentials or keep sessions.
+The encrypted copy of production environment variables (encryption and sign-in keys) kept with the backups, without which a restore cannot decrypt credentials or keep sessions. Made only while a backup key is set: they are never stored unencrypted (ADR-0014).
 
 **Sign-in method**:
 How a user proves who they are: password, Google account or Microsoft account. Every user has a password; the other two are optional.

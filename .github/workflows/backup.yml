@@ -1,10 +1,10 @@
 # Responsibility: Nightly off-site backup (ADR-0008): exports production with
-#   its files, encrypts it with age, uploads it to Cloudflare R2, records the
-#   copy in the app, adds the readable Excel copy to Dropbox (ADR-0011) and
-#   pings the Better Stack heartbeat.
+#   its files, uploads it to Cloudflare R2 (unencrypted unless
+#   BACKUP_AGE_PUBLIC_KEY is set, ADR-0014), records the copy in the app, adds
+#   the readable Excel copy to Dropbox (ADR-0011) and pings the heartbeat.
 # Layer: Tooling (scheduled workflow). Runs from main only, nightly or by hand.
 # Dependencies: scripts/backup/nightly.sh, the Convex CLI, the AWS CLI, age,
-#   curl and the "backups" environment. Runbooks in docs/runbooks:
+#   zip, curl and the "backups" environment. Runbooks in docs/runbooks:
 #   backup-restore.md, monitoring.md.
 #
 # A failed run emails the person who last changed the schedule below (see the
@@ -48,17 +48,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install age
+      # age encrypts when BACKUP_AGE_PUBLIC_KEY is set, so adding the secret is
+      # all it takes to turn encryption on; zip empties the sign-in tables of
+      # an unencrypted copy (ADR-0014).
+      - name: Install age and zip
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends age
+          sudo apt-get install -y -qq --no-install-recommends age zip
           age --version
 
       # Secrets live on the "backups" environment, never on the repository.
-      - name: Export, encrypt, upload and record
+      - name: Export, upload and record
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_BACKUP_DEPLOY_KEY }}
-          # The public key only (age1...): the private key never goes to GitHub.
+          # Optional (ADR-0014): unset, the copies are stored unencrypted. When
+          # set, the public key only (age1...); the private key never goes here.
           BACKUP_AGE_PUBLIC_KEY: ${{ secrets.BACKUP_AGE_PUBLIC_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           # An R2 API token with object read and write on the bucket only.
