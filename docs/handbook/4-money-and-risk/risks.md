@@ -13,17 +13,17 @@ The risk register for Angel One, as of 20 November 2026. Review it with the quar
 
 Each risk by its number, placed by likelihood and impact. Top right is worst.
 
-| Likelihood | Impact: Low | Impact: Medium    | Impact: High              |
-| ---------- | ----------- | ----------------- | ------------------------- |
-| **High**   |             | R16               | R4                        |
-| **Medium** | R19, R20    | R7, R10, R12, R13 | R1, R3, R8, R14, R17      |
-| **Low**    | R9, R18     | R11, R15          | R2, R5, R6, R21, R22, R23 |
+| Likelihood | Impact: Low | Impact: Medium         | Impact: High              |
+| ---------- | ----------- | ---------------------- | ------------------------- |
+| **High**   |             |                        | R4                        |
+| **Medium** | R19, R20    | R7, R10, R12, R13, R16 | R1, R3, R8, R14, R17, R24 |
+| **Low**    | R9, R18     | R11, R15               | R2, R5, R6, R21, R22, R23 |
 
 ## The five to watch first
 
 1. **Off-site backups run, but no restore is proven yet.** The copies are unencrypted, and the deploy token can reach them (R1, R2, R23).
 2. **One person** holds the Convex account and maintains the app (R3, R4).
-3. **No second factor** on app accounts, and 2FA not yet confirmed on every operator account (R14).
+3. **No second factor** on app accounts, 2FA not yet confirmed on every operator account, and one mailbox that can reset Cloudflare and Better Stack (R14, R24).
 4. **Convex can't roll back**, and the app has no other backend (R5, R6).
 5. **Devices hold a readable copy for seven days**, protected only by a screen lock nobody checks (R10, R12).
 
@@ -54,7 +54,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Impact:** High: while he is unavailable nobody can repair, restore or rotate a key.
 - **What reduces it:** the break-glass account and its sealed paper copy ([runbook](../../runbooks/break-glass-admin.md)). With backups unencrypted there is no backup key to seal ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)). To recover without Aaron the organisation needs instead: the Cloudflare login (it reaches the R2 copies), Convex's account-recovery steps written down, and an owner of the GitHub organisation.
 - **Who acts:** Aaron, with the organisation contact.
-- **Status:** Open: who holds each of the three is not recorded, and the break-glass account and its sealed copy are not set up yet.
+- **Status:** Open: the Cloudflare login is a shared login that the operations staff member can also use ([accounts](../../runbooks/accounts.md)); Convex's recovery steps and the GitHub organisation's owner are not recorded, and the break-glass account and its sealed copy are not set up yet.
 
 ### R4. A single maintainer
 
@@ -151,7 +151,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Risk:** app accounts have no second factor, and with password-only sign-in no outside provider can add one ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)); two-step sign-in on operator accounts is not yet confirmed.
 - **Likelihood:** Medium: passwords are phished and reused.
 - **Impact:** High for an administrator's account or an operator account (Convex, Cloudflare, GitHub): every record.
-- **What reduces it:** 15-character passwords, lockout after 10 failed sign-ins in an hour, and 2FA on every operator account.
+- **What reduces it:** 15-character passwords, lockout after 10 failed sign-ins in an hour, and 2FA on every operator account, starting with the `accounts@angeloneonline.org` mailbox, which can reset Cloudflare and Better Stack (R24).
 - **Who acts:** Aaron.
 - **Status:** Open.
 
@@ -164,14 +164,14 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Who acts:** Aaron.
 - **Status:** Open.
 
-### R16. Account inventory and incident contacts are blank
+### R16. Account inventory and incident contacts are incomplete
 
-- **Risk:** nobody else knows who holds the registrars of the two domains (`angeloneaviation.org` for the app, `angeloneonline.org` for email), Cloudflare, Resend or the FAA key.
-- **Likelihood:** High: the rows are blank today.
+- **Risk:** nobody else knows who holds Resend, the FAA key, Geoapify or Aircraft Spruce, where the `angeloneonline.org` DNS zone is hosted, or who the incident contacts and the break-glass administrator are.
+- **Likelihood:** Medium: most of the [accounts list](../../runbooks/accounts.md) was filled in on 20 Nov 2026, but some answers and the incident contacts are still missing.
 - **Impact:** Medium: it slows every incident and renewal, and makes R3 and R4 worse.
-- **What reduces it:** filling in [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md).
-- **Who acts:** Aaron.
-- **Status:** Open.
+- **What reduces it:** filling in the rest of [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md).
+- **Who acts:** Aaron; the operations staff member for the domains.
+- **Status:** Reduced (20 Nov 2026). Known: Aaron owns Convex; both domains are registered at SiteGround, with the login held by the operations staff member, who also administers Google Workspace and reads `accounts@angeloneonline.org`; Cloudflare and Better Stack share that mailbox as their login (R24); Angel One pays for the services. Still to find out: DNS for `angeloneonline.org`, Resend, the FAA key, Geoapify, Aircraft Spruce, the A2 Hosting cPanel and the break-glass administrator.
 
 ### R17. The auth library is pre-release
 
@@ -235,6 +235,15 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **What reduces it:** the token lives only in GitHub. Optional: remove its "Workers R2 Storage" permission (the site uses no R2), so that the backup token **angelone-backups nightly** (Object Read & Write on `angelone-backups` only) is the one token that reaches the bucket.
 - **Who acts:** Aaron.
 - **Status:** Reduced.
+
+### R24. One mailbox can reset Cloudflare and Better Stack
+
+- **Risk:** Cloudflare and Better Stack share the login `accounts@angeloneonline.org`, so anyone who controls that mailbox can reset both ([accounts](../../runbooks/accounts.md#one-mailbox-resets-several-accounts)). Cloudflare reaches DNS, the website and every backup (R2).
+- **Likelihood:** Medium: a shared mailbox used by more than one person, and two-step sign-in on it and on the shared accounts is not yet confirmed (R14).
+- **Impact:** High: a takeover of Cloudflare reaches every record in the unencrypted backups and can move the app's address; a takeover of Better Stack can silence every alarm.
+- **What reduces it:** two-step sign-in, first on the mailbox and then on each shared account (R14).
+- **Who acts:** the operations staff member (the mailbox, in Google Workspace); Aaron (Cloudflare and Better Stack).
+- **Status:** Open.
 
 ## Where the rest is tracked
 

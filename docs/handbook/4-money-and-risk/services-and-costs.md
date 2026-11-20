@@ -5,49 +5,49 @@
 Every outside service Angel One uses: what it does, which plan, what it costs, what breaks without it, and who owns the account.
 
 - **Prices are as of November 2026**, from each vendor's own pricing page (linked), in US dollars, before tax.
-- **Who owns each account** is recorded in the [accounts runbook](../../runbooks/accounts.md). Most rows there are still blank; filling them in is on the [go-live checklist](../../go-live-checklist.md).
+- **Who owns each account** is recorded in the [accounts runbook](../../runbooks/accounts.md). Most rows were filled in on 20 Nov 2026; the rest are on the [go-live checklist](../../go-live-checklist.md). Angel One (the organisation) pays for the services.
 - Numbers marked **estimate** are worked out here, not measured or billed.
 - How the services connect: the diagram in the [system overview](../1-start-here/system-overview.md#the-parts).
 
 ## At a glance
 
-| Service                                                 | Plan                           | Cost today                                | Needed?                   |
-| ------------------------------------------------------- | ------------------------------ | ----------------------------------------- | ------------------------- |
-| Convex                                                  | Professional, 1 seat           | $25 a month                               | Yes: the whole backend    |
-| Cloudflare Workers (website)                            | Free                           | $0                                        | Yes                       |
-| Cloudflare R2 (backups)                                 | Free tier                      | $0                                        | Yes, for off-site backups |
-| Cloudflare DNS                                          | Zone on Cloudflare             | $0 (no paid plan in use)                  | Yes                       |
-| GitHub (code, CI, Deploy, backups)                      | Free, public repository        | $0                                        | Yes                       |
-| Resend (email)                                          | Free                           | $0                                        | For alert emails          |
-| Web Push (Google, Apple, Mozilla)                       | No account                     | $0                                        | For device alerts         |
-| Better Stack (uptime, backup heartbeat)                 | Free                           | $0                                        | Recommended               |
-| Domain registrar (`angeloneaviation.org`, site and app) | Not known                      | Not known; about $11.20 a year (estimate) | Yes                       |
-| Domain registrar (`angeloneonline.org`, email)          | Not known                      | Not known; about $11.20 a year (estimate) | Yes                       |
-| FAA DRS API key                                         | Key from the FAA               | Not known                                 | For AD monitoring         |
-| Geoapify (address lookup)                               | Free                           | $0                                        | Optional feature          |
-| Aircraft Spruce                                         | The program's customer account | Not known                                 | Optional feature          |
-| Google Workspace                                        | Organisation email             | Not part of the app's cost                | No                        |
-| Dropbox                                                 | Optional; not set up           | $0 if on Basic                            | No                        |
-| Sentry                                                  | Optional; not used             | $0                                        | No                        |
+| Service                                                 | Plan                           | Cost today                                                                                                                       | Needed?                   |
+| ------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Convex                                                  | Professional, 1 seat           | $25 a month                                                                                                                      | Yes: the whole backend    |
+| Cloudflare Workers (website)                            | Free                           | $0                                                                                                                               | Yes                       |
+| Cloudflare R2 (backups)                                 | Free tier                      | $0                                                                                                                               | Yes, for off-site backups |
+| Cloudflare DNS                                          | Zone on Cloudflare             | $0 (no paid plan in use)                                                                                                         | Yes                       |
+| GitHub (code, CI, Deploy, backups)                      | Free, public repository        | $0                                                                                                                               | Yes                       |
+| Resend (email)                                          | Free                           | $0                                                                                                                               | For alert emails          |
+| Web Push (Google, Apple, Mozilla)                       | No account                     | $0                                                                                                                               | For device alerts         |
+| Better Stack (uptime, backup heartbeat)                 | Free                           | $0                                                                                                                               | Recommended               |
+| Domain registrar (`angeloneaviation.org`, site and app) | SiteGround                     | SiteGround's renewal price: check in SiteGround (often higher than at-cost); at least about $11.20 a year (lower-bound estimate) | Yes                       |
+| Domain registrar (`angeloneonline.org`, email)          | SiteGround                     | SiteGround's renewal price: check in SiteGround (often higher than at-cost); at least about $11.20 a year (lower-bound estimate) | Yes                       |
+| FAA DRS API key                                         | Key from the FAA               | Not known                                                                                                                        | For AD monitoring         |
+| Geoapify (address lookup)                               | Free                           | $0                                                                                                                               | Optional feature          |
+| Aircraft Spruce                                         | The program's customer account | Not known                                                                                                                        | Optional feature          |
+| Google Workspace                                        | Organisation email             | Not part of the app's cost                                                                                                       | No                        |
+| Dropbox                                                 | Optional; not set up           | $0 if on Basic                                                                                                                   | No                        |
+| Sentry                                                  | Optional; not used             | $0                                                                                                                               | No                        |
 
 ## Totals
 
-| Size                                             | Monthly                         | Yearly                            |
-| ------------------------------------------------ | ------------------------------- | --------------------------------- |
-| **Today** (production holds no real records yet) | **$25**                         | **about $322**                    |
-| **Load-test size** (6 aircraft, 20 years)        | **$25 to about $40** (estimate) | **about $322 to $502** (estimate) |
+| Size                                             | Monthly                         | Yearly                                     |
+| ------------------------------------------------ | ------------------------------- | ------------------------------------------ |
+| **Today** (production holds no real records yet) | **$25**                         | **at least about $322**                    |
+| **Load-test size** (6 aircraft, 20 years)        | **$25 to about $40** (estimate) | **at least about $322 to $502** (estimate) |
 
-- **Today:** Convex $25 × 12 = $300, plus the two domains, about $11.20 each (estimate): $322.40. Everything else is on a free plan.
-- **Load-test size:** records alone stay inside Convex Pro's included amounts. The upper figure allows for heavy use and a few GB of uploaded files ([below](#how-the-load-test-figure-is-estimated)). $40 × 12 = $480, plus the two domains: about $502.
+- **Today:** Convex $25 × 12 = $300, plus the two domains at SiteGround's renewal price, at least about $11.20 each (lower-bound estimate: Cloudflare's at-cost .org price, not SiteGround's): at least about $322. Everything else is on a free plan.
+- **Load-test size:** records alone stay inside Convex Pro's included amounts. The upper figure allows for heavy use and a few GB of uploaded files ([below](#how-the-load-test-figure-is-estimated)). $40 × 12 = $480, plus the two domains: at least about $502.
 - **Not included:** Google Workspace (the organisation's email, paid or not whatever the app does), parts bought through Aircraft Spruce, and anyone's time.
 
-Where today's yearly cost goes:
+Where today's yearly cost goes, with each domain at its lower-bound estimate (SiteGround's real renewal price is likely higher):
 
 ```mermaid
 pie showData title Yearly cost today, in US dollars
   "Convex Professional, 1 seat" : 300
-  "angeloneaviation.org renewal (estimate)" : 11.2
-  "angeloneonline.org renewal (estimate)" : 11.2
+  "angeloneaviation.org renewal (lower bound)" : 11.2
+  "angeloneonline.org renewal (lower bound)" : 11.2
 ```
 
 Source: the [Convex](#convex-backend) and [domain](#domain-registrars) prices below. Every other service costs $0 today.
@@ -88,7 +88,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Price           | Static asset requests are free and unlimited; Workers Free allows 100,000 Worker requests a day; Workers Paid is $5 a month ([Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)). R2: $0.015 per GB-month, 10 GB free each month, no egress fees ([R2 pricing](https://developers.cloudflare.com/r2/pricing/)) |
 | Watch           | Cloudflare's own Git build (Workers Builds) must stay disconnected ([risks R22](risks.md#r22-cloudflares-git-build-publishes-the-site)). The deploy token still has admin access to every R2 bucket, the backups' included ([risks R23](risks.md#r23-the-deploy-token-can-reach-every-r2-bucket))                                          |
 | If it goes away | Website: the site is unreachable; installed apps still open from their cache and log offline. Any static host can serve `dist/` ([release runbook](../../runbooks/release.md)). R2: no new off-site backups; any S3-compatible store can replace it ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md))         |
-| Account holder  | Not recorded yet ([accounts](../../runbooks/accounts.md)). The API token in GitHub expires and must be rotated yearly                                                                                                                                                                                                                      |
+| Account holder  | Shared login `accounts@angeloneonline.org`: Aaron and the operations staff member can sign in ([accounts](../../runbooks/accounts.md#one-mailbox-resets-several-accounts), [risks R24](risks.md#r24-one-mailbox-can-reset-cloudflare-and-better-stack)). The API token in GitHub expires and must be rotated yearly                        |
 
 ### GitHub
 
@@ -128,16 +128,16 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan            | Free. Aaron chose Better Stack only, no Sentry, on 20 Nov                                                                                                                                                                                                                                                                  |
 | Price           | Free: 10 monitors and heartbeats, 1 status page, Slack and email alerts ([pricing](https://betterstack.com/pricing))                                                                                                                                                                                                       |
 | If it goes away | Nobody is told the site is down or a backup was missed until a user or the daily digest says so                                                                                                                                                                                                                            |
-| Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                           |
+| Account holder  | Shared login `accounts@angeloneonline.org`: Aaron and the operations staff member ([risks R24](risks.md#r24-one-mailbox-can-reset-cloudflare-and-better-stack))                                                                                                                                                            |
 
 ### Domain registrars
 
-|                 |                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Does            | Hold the organisation's two domains: `angeloneaviation.org`, the website and app only (`ops.angeloneaviation.org`), its DNS zone on Cloudflare; and `angeloneonline.org`, email: Google Workspace mail and the `accounts@angeloneonline.org` security mailbox                                                                                                                                                                                                 |
-| Plan, price     | **Not known**: which registrar holds each is still to find out ([accounts](../../runbooks/accounts.md)). For scale, each is a .org, and .org renews for $11.20 a year at Cloudflare Registrar's at-cost price (**estimate**: the figure is from a third-party price list, [cfdomainpricing.com](https://cfdomainpricing.com/), read 20 Nov 2026; Cloudflare states it adds no markup: [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/)) |
-| If it goes away | A lapsed `angeloneaviation.org` takes the site and app down. A lapsed `angeloneonline.org` takes the organisation's email down, including security reports to `accounts@angeloneonline.org`, service alerts sent to its mailboxes, and the app's alert emails if Resend sends them from this domain. Either lets someone else buy the name. Keep auto-renew on for both                                                                                       |
-| Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+|                 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Does            | Hold the organisation's two domains: `angeloneaviation.org`, the website and app only (`ops.angeloneaviation.org`), its DNS zone on Cloudflare; and `angeloneonline.org`, email: Google Workspace mail and the `accounts@angeloneonline.org` security mailbox                                                                                                                                                                                                                                                                               |
+| Plan, price     | Both are registered at **SiteGround** ([accounts](../../runbooks/accounts.md)). SiteGround's renewal price: check in SiteGround (often higher than at-cost). Lower bound: each is a .org, and .org renews for $11.20 a year at Cloudflare Registrar's at-cost price (**estimate**, not SiteGround's price: the figure is from a third-party price list, [cfdomainpricing.com](https://cfdomainpricing.com/), read 20 Nov 2026; Cloudflare states it adds no markup: [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/)) |
+| If it goes away | A lapsed `angeloneaviation.org` takes the site and app down. A lapsed `angeloneonline.org` takes the organisation's email down, including security reports to `accounts@angeloneonline.org`, service alerts sent to its mailboxes, and the app's alert emails if Resend sends them from this domain. Either lets someone else buy the name. Keep auto-renew on for both                                                                                                                                                                     |
+| Account holder  | The operations staff member holds the SiteGround login for both domains                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### FAA DRS API key
 
@@ -175,7 +175,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | The organisation's email (`angeloneonline.org` mail is Google)                                                                                                                                                                                                                                                                                                                |
 | Price           | Business Starter $7 per user a month (annual) or $8.40 (flexible); Business Standard $14 or $16.80 ([Google](https://knowledge.workspace.google.com/admin/billing/compare-flexible-and-annual-fixed-term-payment-plans)). A nonprofit edition is $0 ([Google for Nonprofits](https://www.google.com/nonprofits/offerings/workspace/)). Which one the program has is not known |
 | If it goes away | Nothing in the app depends on it today                                                                                                                                                                                                                                                                                                                                        |
-| Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                              |
+| Account holder  | Administered by the operations staff member                                                                                                                                                                                                                                                                                                                                   |
 
 ### Dropbox (optional)
 
@@ -184,7 +184,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | Holds the readable Excel copy of the records, if switched on ([ADR-0011](../../adr/0011-readable-records-copy-in-dropbox.md), [runbook](../../runbooks/dropbox-records-copy.md)). Optional, and deferred until after go-live: not set up ([decisions](../5-history/decisions.md#20-nov-2026)) |
 | Price           | Basic is free with 2 GB; Plus, 2 TB, is $11.99 a month billed monthly, or $9.99 a month billed yearly ([plans](https://www.dropbox.com/plans)). A workbook is about 1 MB at the sample's size, so Basic likely fits for years (**estimate**)                                                  |
 | If it goes away | Only the convenience copy is lost. R2 is the backup                                                                                                                                                                                                                                           |
-| Account holder  | Should be an organisation account with two-step sign-in                                                                                                                                                                                                                                       |
+| Account holder  | Angel One (the organisation), which already has a Dropbox account. Should be an organisation account with two-step sign-in                                                                                                                                                                    |
 
 ### Sentry (optional, not used)
 
@@ -196,7 +196,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 
 ## Other accounts to keep track of
 
-| Account                                   | Why it matters                                | Where                                  |
-| ----------------------------------------- | --------------------------------------------- | -------------------------------------- |
-| The `accounts@angeloneonline.org` mailbox | Security reports arrive there; keep it read   | [SECURITY.md](../../../SECURITY.md)    |
-| A2 Hosting cPanel                         | Published the old test website; to be retired | [Accounts](../../runbooks/accounts.md) |
+| Account                                   | Why it matters                                                                                                                                                                                                                 | Where                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| The `accounts@angeloneonline.org` mailbox | Security reports arrive there; the operations staff member reads it. It is the shared login of Cloudflare and Better Stack, so it can reset both ([risks R24](risks.md#r24-one-mailbox-can-reset-cloudflare-and-better-stack)) | [SECURITY.md](../../../SECURITY.md)    |
+| A2 Hosting cPanel                         | Published the old test website; to be retired                                                                                                                                                                                  | [Accounts](../../runbooks/accounts.md) |
