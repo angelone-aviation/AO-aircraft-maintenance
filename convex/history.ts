@@ -1,14 +1,17 @@
 /**
- * Responsibility: The history queries: the flights, problem reports and work
- *   orders the workspace's window leaves out, one work order with everything
- *   on it, records named by uuid, one aircraft's flights over a span, and
- *   its cost report from the cost ledger.
+ * Responsibility: The history queries: the flights, problem reports, work
+ *   orders, parts requests, purchase orders and flight plans the
+ *   workspace's window leaves out, one work order with everything on it,
+ *   records named by uuid, one aircraft's flights over a span, and its cost
+ *   report from the cost ledger.
  * Layer: Server. Public Convex queries; the window, order and scoping rules
  *   come from src/domain.
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./collections, ./historyScan, ./costLedger, ./workingSet, ./userErrors,
- *   src/domain (retention, historyReads, costs, programs, model, workOrders,
- *   auditHistory).
+ *   ./collections, ./historyScan, ./purchasingPages, ./purchaseAllocations,
+ *   ./costLedger,
+ *   ./workingSet, ./userErrors, ./validators, src/domain (retention,
+ *   purchasingWindow, historyReads, costs, programs, model, workOrders,
+ *   vendors, auditHistory).
  *
  * Each query checks the program first (checkContext refuses a stale program,
  * owners and board members) and reads only aircraft the caller may read
@@ -23,7 +26,16 @@ import type { Doc } from "./_generated/dataModel";
 import { checkContext } from "./programContext";
 import { member } from "./access";
 import { decode, decodeFlight } from "./collections";
-import { ReadBudget, scanHistory, type ReadAfter } from "./historyScan";
+import { rangeAfter, ReadBudget, scanHistory } from "./historyScan";
+import {
+  columnPosition,
+  orderRange,
+  planRange,
+  PurchasingJudge,
+  requestRange,
+  type OlderRequest,
+} from "./purchasingPages";
+import { requestSourceValidator } from "./validators";
 import { exposeRejections } from "./userErrors";
 import { ledgerRowsOf } from "./costLedger";
 import {
@@ -31,9 +43,11 @@ import {
   budgetAndSettingsDocs,
   discrepancyDocsByUuid,
   inLoadOrder,
+  partsRequestDocsOn,
   taskCardDocsByUuid,
   workOrderDocsByUuid,
 } from "./workingSet";
+import { ordersAllocating } from "./purchaseAllocations";
 import { ledgerCostReport } from "../src/domain/costs/ledger";
 import { periodFor } from "../src/domain/costs/period";
 import {
@@ -44,6 +58,7 @@ import {
 import {
   compareHistoryPositions,
   emptyHistoryRecords,
+  windowCutoffs,
   historyCursor,
   historyPageSize,
   historyStart,
@@ -69,11 +84,24 @@ import {
   workOrderHistory,
   type FlightRange,
   type FoundRecords,
+  type RecordLookup,
   type WorkOrderHistory,
 } from "../src/domain/historyReads";
-import { activeProgram, scopedSnapshot } from "../src/domain/programs";
+import {
+  allocatedRequests,
+  isOpenPurchaseOrder,
+  purchaseOrderActivity,
+} from "../src/domain/purchasingWindow";
+import { vendorKey } from "../src/domain/vendors";
+import {
+  activeProgram,
+  programPermission,
+  scopedSnapshot,
+} from "../src/domain/programs";
 import { can, type Member, type Snapshot } from "../src/domain/model";
 import type { WorkOrder } from "../src/domain/workOrders";
+import type { PurchaseOrder } from "../src/domain/purchaseOrders";
+import type { FlightPlan } from "../src/domain/flightPlans";
 import { HISTORY_NOT_FOUND } from "../src/domain/auditHistory";
 
 // The statuses that close a work order: only closed orders are ever older.
@@ -94,6 +122,16 @@ type PageQuery = { cursor: string | null; numItems: number };
 type Dependents = Pick<
   HistoryRecords,
   "taskCards" | "archivedTaskCards" | "costs"
+>;
+// The one index range a uuid lookup opens, which Convex's types cannot name
+// for a table chosen at run time; both tables index "uuid" alone.
+type UuidRange = { eq(field: "uuid", value: string): never };
+/** The tables whose history pages read per aircraft by a derived column. */
+type AircraftTable = "flights" | "workOrders" | "flightPlans";
+/** What judging a work order reads within. */
+type OrderScope = Pick<
+  ListScope<HistoryKind>,
+  "state" | "readable" | "budget" | "now"
 >;
 
 /** One list request, checked, with where its scan starts. */
@@ -243,6 +281,160 @@ export const workOrders = query({
 });
 
 /**
+ * The next page of parts requests the workspace's window leaves out, newest
+ * first by creation; each brings its purchase allocations, as the
+ * workspace lists them.
+ *
+ * @param aircraftUuid - One aircraft; when absent, every readable one and,
+ *   for a program administrator, requests for stock.
+ * @param source - Only the requests on this record's list
+ *   (requestMatchesSource).
+ * @param cursor - The previous page's `continueCursor`, or null.
+ * @param numItems - Page size, bounded as historyPageSize bounds it.
+ * @returns The requests and their allocations; no members. A page is short
+ *   and not done when the read budget runs out first.
+ * @throws {ConvexError} "History not found." for an aircraft the caller may
+ *   not read, the same as for one that does not exist.
+ * @throws {Error} "Invalid history cursor."; a missing derived column,
+ *   until migrations:backfillHistoryColumns has run.
+ * @throws As `checkContext`, first.
+ */
+export const partsRequests = query({
+  args: { ...PAGE_ARGS, source: v.optional(requestSourceValidator) },
+  handler: async (ctx, args): Promise<HistoryPage> => {
+    const list = await openList(ctx, "partsRequests", args);
+    const program = activeProgram(list.state);
+    if (!program) return emptyPage(args);
+    await assertProgramColumnsFilled(
+      ctx,
+      list.budget,
+      program,
+      "partsRequests",
+    );
+    const judge = purchasingJudge(ctx, list, program);
+    const scan = await scanHistory({
+      ...list,
+      ranges: requestSources(list, args).map((a) =>
+        requestRange(ctx, list.budget, program, a),
+      ),
+      positionOf: (row) => columnPosition(row, "createdAt", "Parts request"),
+      pick: async (row) => {
+        const [r] = decode("partsRequests", [row]);
+        if (args.source && !(await judge.matchesSource(r, args.source)))
+          return null;
+        return judge.olderRequest(r);
+      },
+    });
+    return {
+      records: requestRecords(list.state, scan.picked),
+      members: [],
+      isDone: scan.isDone,
+      continueCursor: cursorOf(scan, args),
+    };
+  },
+});
+
+/**
+ * Inventory administrators: the next page of purchase orders the
+ * workspace's window leaves out, newest first by creation. Anyone else's
+ * workspace holds no orders, so their pages are empty and done.
+ *
+ * @param vendor - Only orders to this vendor, matched as vendorKey matches
+ *   names.
+ * @param cursor - The previous page's `continueCursor`, or null.
+ * @param numItems - Page size, bounded as historyPageSize bounds it.
+ * @returns The orders; no members. A page is short and not done when the
+ *   read budget runs out first.
+ * @throws {Error} "Invalid history cursor."; a missing derived column,
+ *   until migrations:backfillHistoryColumns has run.
+ * @throws As `checkContext`, first.
+ */
+export const purchaseOrders = query({
+  args: {
+    programUuid: v.optional(v.string()),
+    vendor: v.optional(v.string()),
+    cursor: v.union(v.string(), v.null()),
+    numItems: v.number(),
+  },
+  handler: async (ctx, args): Promise<HistoryPage> => {
+    const list = await openList(ctx, "purchaseOrders", args);
+    const program = activeProgram(list.state);
+    if (!program || !programPermission(list.state, "admin"))
+      return emptyPage(args);
+    await assertProgramColumnsFilled(
+      ctx,
+      list.budget,
+      program,
+      "purchaseOrders",
+    );
+    const judge = purchasingJudge(ctx, list, program);
+    const scan = await scanHistory({
+      ...list,
+      ranges: [orderRange(ctx, list.budget, program)],
+      positionOf: (row) => columnPosition(row, "createdAt", "Purchase order"),
+      pick: (row) => pickOlderPurchaseOrder(judge, list.now, args.vendor, row),
+    });
+    const scoped = scopedSnapshot({
+      ...list.state,
+      purchaseOrders: scan.picked,
+    });
+    return {
+      records: {
+        ...emptyHistoryRecords(),
+        purchaseOrders: scoped.purchaseOrders ?? [],
+      },
+      members: [],
+      isDone: scan.isDone,
+      continueCursor: cursorOf(scan, args),
+    };
+  },
+});
+
+/**
+ * The next page of flight plans the workspace's window leaves out, newest
+ * departure first; each brings the flights logged against it.
+ *
+ * @param aircraftUuid - One aircraft; every readable one when absent.
+ * @param cursor - The previous page's `continueCursor`, or null.
+ * @param numItems - Page size, bounded as historyPageSize bounds it.
+ * @returns The plans, their flights and the pilots and copilots those name.
+ *   A page is short and not done when the read budget runs out first.
+ * @throws {ConvexError} "History not found." for an aircraft the caller may
+ *   not read, the same as for one that does not exist.
+ * @throws {Error} "Invalid history cursor."; a missing derived column,
+ *   until migrations:backfillHistoryColumns has run.
+ * @throws As `checkContext`, first.
+ */
+export const flightPlans = query({
+  args: PAGE_ARGS,
+  handler: async (ctx, args): Promise<HistoryPage> => {
+    const list = await openList(ctx, "flightPlans", args);
+    await assertColumnsFilled(ctx, list, "flightPlans");
+    const scan = await scanHistory({
+      ...list,
+      ranges: list.sources.map((a) => planRange(ctx, list.budget, a)),
+      positionOf: (row) => columnPosition(row, "departedAt", "Flight plan"),
+      pick: (row) => pickOlderPlan(ctx, list, row),
+    });
+    const flights = inLoadOrder(
+      scan.picked.flatMap((p) => p.flights),
+      list.state.aircraft,
+    ).map(decodeFlight);
+    const page = await namedPage(ctx, list.state, { flights });
+    const plans = scopedSnapshot({
+      ...list.state,
+      flightPlans: scan.picked.map((p) => p.plan),
+    }).flightPlans;
+    return {
+      ...page,
+      records: { ...page.records, flightPlans: plans ?? [] },
+      isDone: scan.isDone,
+      continueCursor: cursorOf(scan, args),
+    };
+  },
+});
+
+/**
  * One work order with everything filed on it, inside the window or not: for
  * the records package, logbook photos and links to older work.
  *
@@ -274,12 +466,17 @@ export const workOrder = query({
 
 /**
  * Records a screen names by uuid, inside the window or not: problem reports
- * and job cards a form links to, and the flights logged against plans, which
- * no list pages on their own.
+ * and job cards a form links to, the flights logged against plans, and the
+ * parts requests and purchase orders a line or a document names, which no
+ * list pages on their own.
  *
  * @param discrepancyUuids - Problem reports.
  * @param taskCardUuids - Job cards, live or archived.
  * @param flightPlanUuids - Flight plans whose flights are wanted.
+ * @param partsRequestUuids - Parts requests, which come with their purchase
+ *   allocations from every order.
+ * @param purchaseOrderUuids - Purchase orders: an inventory administrator's
+ *   only, as the workspace shows them.
  * @returns As lookupRecords: what the caller may read of them, redacted as
  *   the workspace redacts it, with the members the reports and flights name.
  *   A record on an aircraft the caller may not read is left out, as one that
@@ -293,6 +490,8 @@ export const records = query({
     discrepancyUuids: v.array(v.string()),
     taskCardUuids: v.array(v.string()),
     flightPlanUuids: v.array(v.string()),
+    partsRequestUuids: v.optional(v.array(v.string())),
+    purchaseOrderUuids: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<FoundRecords> => {
     const state = await checkContext(ctx, args.programUuid);
@@ -313,6 +512,7 @@ export const records = query({
       members,
       taskCards: decode("taskCards", cards),
       archivedTaskCards: decode("archivedTaskCards", archived),
+      ...(await readNamedPurchasing(ctx, activeProgram(state), args)),
     });
     return exposeRejections(() => lookupRecords(scoped, args));
   },
@@ -437,38 +637,198 @@ async function openList<K extends HistoryKind>(
   };
 }
 
+function emptyPage(args: PageQuery): HistoryPage {
+  return {
+    records: emptyHistoryRecords(),
+    members: [],
+    isDone: true,
+    continueCursor: args.cursor,
+  };
+}
+
+// An aircraft's requests, or every readable aircraft's and, for those who
+// see them, the program's requests for stock (aircraft "").
+function requestSources(
+  list: ListScope<"partsRequests">,
+  args: { aircraftUuid?: string },
+): string[] {
+  if (args.aircraftUuid) return list.sources;
+  const stock = programPermission(list.state, "admin") ? [""] : [];
+  return [...list.sources, ...stock];
+}
+
+function purchasingJudge(
+  ctx: QueryCtx,
+  list: OrderScope,
+  program: string,
+): PurchasingJudge {
+  const keepsOrder = orderKeeper(ctx, list);
+  return new PurchasingJudge(ctx, { ...list, program, keepsOrder });
+}
+
+// The page's requests and their allocations, scoped: the orders, which only
+// an administrator sees, become each request's purchases.
+function requestRecords(state: State, picked: OlderRequest[]): HistoryRecords {
+  const orders = [
+    ...new Map(picked.flatMap((p) => p.orders).map((o) => [o._id, o])).values(),
+  ].sort((a, b) => a._creationTime - b._creationTime);
+  const scoped = scopedSnapshot({
+    ...state,
+    partsRequests: picked.map((p) => p.request),
+    purchaseOrders: decode("purchaseOrders", orders),
+  });
+  return {
+    ...emptyHistoryRecords(),
+    partsRequests: scoped.partsRequests ?? [],
+    partsRequestPurchases: scoped.partsRequestPurchases ?? [],
+  };
+}
+
+// Open or recently changed orders are kept on their own fields; an older
+// one is still kept for any request it allocates that the window keeps.
+async function pickOlderPurchaseOrder(
+  judge: PurchasingJudge,
+  now: number,
+  vendor: string | undefined,
+  row: Doc<"purchaseOrders">,
+): Promise<PurchaseOrder | null> {
+  const [p] = decode("purchaseOrders", [row]);
+  if (vendor !== undefined && vendorKey(p.vendor) !== vendorKey(vendor))
+    return null;
+  const { closed } = windowCutoffs(now);
+  if (isOpenPurchaseOrder(p) || purchaseOrderActivity(p) >= closed) return null;
+  for (const uuid of allocatedRequests(p))
+    if (await judge.keepsRequest(uuid)) return null;
+  return p;
+}
+
+// A plan departing before the flight cutoff is older unless filed since the
+// closed cutoff or flown by a flight the window keeps; its flights come
+// with it, from the readable aircraft.
+async function pickOlderPlan(
+  ctx: QueryCtx,
+  list: ListScope<"flightPlans">,
+  row: Doc<"flightPlans">,
+): Promise<{ plan: FlightPlan; flights: Doc<"flights">[] } | null> {
+  const [plan] = decode("flightPlans", [row]);
+  if (plan.createdAt >= windowCutoffs(list.now).closed) return null;
+  const logged = await ctx.db
+    .query("flights")
+    .withIndex("plan", (q) => q.eq("flightPlanUuid", plan.uuid))
+    .collect();
+  const flights = list.budget
+    .spend(logged)
+    .filter((f) => list.readable.has(f.aircraftUuid));
+  if (flights.some((f) => !isOlderFlight(decodeFlight(f), list.now)))
+    return null;
+  return { plan, flights };
+}
+
+// Whether the window keeps a work order, judged as the work-order pages
+// judge it, each order and each aircraft's floor read once per request. An
+// order the caller may not read is not in their snapshot, so not kept.
+function orderKeeper(
+  ctx: QueryCtx,
+  scope: OrderScope,
+): (workOrderUuid: string) => Promise<boolean> {
+  const verdicts = new Map<string, Promise<boolean>>();
+  const floors = new Map<string, Promise<string | undefined>>();
+  const floorOf = (aircraftUuid: string) => {
+    if (!floors.has(aircraftUuid))
+      floors.set(aircraftUuid, readFloor(ctx, scope.budget, aircraftUuid));
+    return floors.get(aircraftUuid)!;
+  };
+  const judge = async (uuid: string) => {
+    const [row] = scope.budget.spend(
+      await ctx.db
+        .query("workOrders")
+        .withIndex("uuid", (q) => q.eq("uuid", uuid))
+        .take(1),
+    );
+    if (!row || !scope.readable.has(row.aircraftUuid)) return false;
+    const floor = new Map([
+      [row.aircraftUuid, await floorOf(row.aircraftUuid)],
+    ]);
+    return (await pickOlderOrder(ctx, scope, floor, row)) === null;
+  };
+  return (uuid) => {
+    if (!verdicts.has(uuid)) verdicts.set(uuid, judge(uuid));
+    return verdicts.get(uuid)!;
+  };
+}
+
 function readableAircraft(state: State): Set<string> {
   return new Set(
     state.aircraft.filter((a) => can(state, a.uuid, "read")).map((a) => a.uuid),
   );
 }
 
-// Rows written before S2 lack the columns these ranges order by, so the
-// ranges would skip or misplace them: refuse instead of showing a gap.
+// Rows written before the columns these ranges order by would be skipped or
+// misplaced: refuse instead of showing a gap.
 async function assertColumnsFilled(
   ctx: QueryCtx,
   scope: Pick<ListScope<HistoryKind>, "sources" | "budget">,
-  table: "flights" | "workOrders",
+  table: AircraftTable,
 ): Promise<void> {
   const unfilled = await Promise.all(
     scope.sources.map((a) => readUnfilled(ctx, table, a)),
   );
   if (unfilled.some((rows) => scope.budget.spend(rows).length > 0))
-    throw new Error(
-      `History columns are missing on ${table}; run migrations:backfillHistoryColumns.`,
-    );
+    throw columnsMissing(table);
+}
+
+// Requests and orders are read by program; an unfilled row lacks the
+// aircraft column too, so one range finds them.
+async function assertProgramColumnsFilled(
+  ctx: QueryCtx,
+  budget: ReadBudget,
+  program: string,
+  table: "partsRequests" | "purchaseOrders",
+): Promise<void> {
+  const unfilled =
+    table === "partsRequests"
+      ? budget.spend(
+          await ctx.db
+            .query("partsRequests")
+            .withIndex("created", (q) =>
+              q.eq("programUuid", program).eq("aircraftUuid", undefined),
+            )
+            .take(1),
+        )
+      : budget.spend(
+          await ctx.db
+            .query("purchaseOrders")
+            .withIndex("created", (q) =>
+              q.eq("programUuid", program).eq("createdAt", undefined),
+            )
+            .take(1),
+        );
+  if (unfilled.length > 0) throw columnsMissing(table);
+}
+
+function columnsMissing(table: string): Error {
+  return new Error(
+    `History columns are missing on ${table}; run migrations:backfillHistoryColumns.`,
+  );
 }
 
 function readUnfilled(
   ctx: QueryCtx,
-  table: "flights" | "workOrders",
+  table: AircraftTable,
   aircraftUuid: string,
-): Promise<Doc<"flights" | "workOrders">[]> {
+): Promise<Doc<AircraftTable>[]> {
   if (table === "flights")
     return ctx.db
       .query("flights")
       .withIndex("started", (q) =>
         q.eq("aircraftUuid", aircraftUuid).eq("startedAt", undefined),
+      )
+      .take(1);
+  if (table === "flightPlans")
+    return ctx.db
+      .query("flightPlans")
+      .withIndex("departed", (q) =>
+        q.eq("aircraftUuid", aircraftUuid).eq("departedAt", undefined),
       )
       .take(1);
   return ctx.db
@@ -477,25 +837,6 @@ function readUnfilled(
       q.eq("aircraftUuid", aircraftUuid).eq("status", undefined),
     )
     .take(1);
-}
-
-// Rows strictly after a position in one index range: the rest of its key's
-// ties (lower uuids), then lower keys. Convex orders strings by UTF-8 bytes
-// and the domain by UTF-16 code units; uuids and ISO dates are ASCII, where
-// the two agree.
-function rangeAfter<
-  T extends Doc<"flights" | "discrepancies" | "workOrders">,
-  K extends string | number,
->(
-  budget: ReadBudget,
-  ties: (key: K, uuid: string, limit: number) => Promise<T[]>,
-  below: (key: K, limit: number) => Promise<T[]>,
-): ReadAfter<T, [K, string]> {
-  return async ([key, uuid], limit) => {
-    const tied = uuid === "" ? [] : budget.spend(await ties(key, uuid, limit));
-    if (tied.length === limit) return tied;
-    return [...tied, ...budget.spend(await below(key, limit - tied.length))];
-  };
 }
 
 function flightRows(ctx: QueryCtx, budget: ReadBudget, aircraftUuid: string) {
@@ -599,28 +940,39 @@ function workOrderPosition(
   return [row.completionDate, row.uuid];
 }
 
-// Each source aircraft's fifth latest completion date, from the top of its
-// completed range.
+// Each source aircraft's fifth latest completion date.
 async function readRecentFloors(
   ctx: QueryCtx,
   list: ListScope<"workOrders">,
 ): Promise<Map<string, string | undefined>> {
   const floors = await Promise.all(
-    list.sources.map(async (aircraftUuid) => {
-      const latest = await ctx.db
-        .query("workOrders")
-        .withIndex("status", (q) =>
-          q.eq("aircraftUuid", aircraftUuid).eq("status", "completed"),
-        )
-        .order("desc")
-        .take(RECENT_COMPLETED_WORK_ORDERS);
-      const dates = list.budget
-        .spend(latest)
-        .map((r) => r.completionDate ?? "");
-      return [aircraftUuid, recentCompletionFloor(dates)] as const;
-    }),
+    list.sources.map(
+      async (aircraftUuid) =>
+        [
+          aircraftUuid,
+          await readFloor(ctx, list.budget, aircraftUuid),
+        ] as const,
+    ),
   );
   return new Map(floors);
+}
+
+// An aircraft's fifth latest completion date, from the top of its completed
+// range (recentCompletionFloor).
+async function readFloor(
+  ctx: QueryCtx,
+  budget: ReadBudget,
+  aircraftUuid: string,
+): Promise<string | undefined> {
+  const latest = await ctx.db
+    .query("workOrders")
+    .withIndex("status", (q) =>
+      q.eq("aircraftUuid", aircraftUuid).eq("status", "completed"),
+    )
+    .order("desc")
+    .take(RECENT_COMPLETED_WORK_ORDERS);
+  const dates = budget.spend(latest).map((r) => r.completionDate ?? "");
+  return recentCompletionFloor(dates);
 }
 
 // The order is judged as historyPage judges it on the caller's scoped
@@ -628,7 +980,7 @@ async function readRecentFloors(
 // only keep an order, never page it, so a kept order costs no more reads.
 async function pickOlderOrder(
   ctx: QueryCtx,
-  list: ListScope<"workOrders">,
+  list: OrderScope,
   floors: Map<string, string | undefined>,
   row: Doc<"workOrders">,
 ): Promise<(Dependents & { workOrder: WorkOrder }) | null> {
@@ -695,18 +1047,13 @@ async function readOrderRecords(
   const scope = { state, readable, budget: new ReadBudget() };
   const dependents = await readDependents(ctx, scope, row.uuid);
   const cards = [...dependents.taskCards, ...dependents.archivedTaskCards];
-  const [evidence, files, requests] = await Promise.all([
+  const [evidence, files, purchasing] = await Promise.all([
     Promise.all(cards.map((c) => readEvidence(ctx, c.uuid))),
     ctx.db
       .query("workOrderFiles")
       .withIndex("workOrder", (q) => q.eq("workOrderUuid", row.uuid))
       .collect(),
-    ctx.db
-      .query("partsRequests")
-      .withIndex("sourceWorkOrder", (q) =>
-        q.eq("sourceWorkOrderUuid", row.uuid),
-      )
-      .collect(),
+    readOrderPurchasing(ctx, activeProgram(state), row.uuid, cards),
   ]);
   return {
     workOrders: decode("workOrders", [row]),
@@ -719,11 +1066,77 @@ async function readOrderRecords(
       size: f.size,
       uploadedAt: f.uploadedAt,
     })),
-    partsRequests: decode(
-      "partsRequests",
-      requests.filter((r) => r.programUuid === activeProgram(state)),
+    ...purchasing,
+  };
+}
+
+// The requests a work order counts, raised on it or on its job cards, and
+// every order allocating them, whose allocations scoping makes purchases.
+async function readOrderPurchasing(
+  ctx: QueryCtx,
+  program: string | undefined,
+  workOrderUuid: string,
+  cards: { uuid: string }[],
+): Promise<Pick<Snapshot, "partsRequests" | "purchaseOrders">> {
+  if (!program) return { partsRequests: [], purchaseOrders: [] };
+  const requests = await partsRequestDocsOn(ctx, program, {
+    workOrderUuids: [workOrderUuid],
+    sourceUuids: cards.map((c) => c.uuid),
+  });
+  const orders = await ordersAllocating(
+    ctx,
+    program,
+    requests.map((r) => r.uuid),
+  );
+  return {
+    partsRequests: decode("partsRequests", requests),
+    purchaseOrders: decode("purchaseOrders", orders),
+  };
+}
+
+// The requests and orders a lookup names, in the active program, with every
+// order allocating those requests, whose allocations scoping makes purchases.
+async function readNamedPurchasing(
+  ctx: QueryCtx,
+  program: string | undefined,
+  lookup: Pick<RecordLookup, "partsRequestUuids" | "purchaseOrderUuids">,
+): Promise<Pick<Snapshot, "partsRequests" | "purchaseOrders">> {
+  if (!program) return { partsRequests: [], purchaseOrders: [] };
+  const byUuid = <T extends "partsRequests" | "purchaseOrders">(
+    table: T,
+    uuids: string[] | undefined,
+  ) =>
+    Promise.all(
+      [...new Set(uuids ?? [])].map((uuid) =>
+        ctx.db
+          .query(table)
+          .withIndex("uuid", (q) =>
+            (q as unknown as UuidRange).eq("uuid", uuid),
+          )
+          .take(1),
+      ),
+    ).then((rows) => rows.flat().filter((r) => r.programUuid === program));
+  const [requests, named] = await Promise.all([
+    byUuid("partsRequests", lookup.partsRequestUuids),
+    byUuid("purchaseOrders", lookup.purchaseOrderUuids),
+  ]);
+  const uuids = requests.map((r) => r.uuid);
+  const allocating = await ordersAllocating(ctx, program, uuids);
+  return {
+    partsRequests: decode("partsRequests", byCreation(requests)),
+    purchaseOrders: decode(
+      "purchaseOrders",
+      byCreation([...named, ...allocating]),
     ),
   };
+}
+
+function byCreation<D extends { _id: string; _creationTime: number }>(
+  rows: readonly D[],
+): D[] {
+  return [...new Map(rows.map((r) => [r._id, r])).values()].sort(
+    (a, b) => a._creationTime - b._creationTime,
+  );
 }
 
 // The flights logged against plans, on the readable aircraft, in the

@@ -41,6 +41,17 @@ type Ctx = QueryCtx | MutationCtx;
 /** The Flight Program's aircraft, as the caller's context holds them. */
 type Fleet = readonly { uuid: string }[];
 
+/** The maintenance history a windowed load reads. */
+export type WindowedHistory = Pick<
+  HistoryRecords,
+  | "flights"
+  | "discrepancies"
+  | "workOrders"
+  | "taskCards"
+  | "archivedTaskCards"
+  | "costs"
+>;
+
 /** What a windowed load reads within. */
 export interface WindowScope {
   /** The active Flight Program; none reads no cost records. */
@@ -72,7 +83,7 @@ export async function windowedHistory(
   ctx: Ctx,
   scope: WindowScope,
   now: number,
-): Promise<HistoryRecords> {
+): Promise<WindowedHistory> {
   const { program, readable } = scope;
   const cutoff = retentionCutoff(now, RETENTION_DAYS);
   const [flights, reduced, cards, costs] = await Promise.all([

@@ -41,14 +41,20 @@ import type {
   WorkOrderHistory,
 } from "../domain/historyReads";
 import type { Flight, Member, Snapshot } from "../domain/model";
+import type { RequestPurchase, RequestSource } from "../domain/partsRequests";
 
 /** One list of older history, with the filters the server applies. */
 export interface HistoryList {
   kind: HistoryKind;
-  /** One aircraft; every aircraft the user may read when absent. */
+  /** One aircraft; every aircraft the user may read when absent. Ignored
+   * for purchase orders, which belong to no aircraft. */
   aircraftUuid?: string;
   /** Flights only: one status (H2). Ignored for the other lists. */
   status?: Flight["status"];
+  /** Parts requests only: one record's list (requestMatchesSource). */
+  source?: RequestSource;
+  /** Purchase orders only: one vendor's, matched as vendorKey matches. */
+  vendor?: string;
 }
 
 /** A list's older history as loaded so far, in page order. */
@@ -83,6 +89,9 @@ export type HistoryRows = Partial<
       "taskEvidence" | "workOrderAttachments" | "partsRequests"
     >
 > & { members?: Member[] };
+
+// Purchase allocations carry no uuid: one is its order, line and request.
+type PurchaseKey = Pick<RequestPurchase, "poUuid" | "requestUuid" | "lineUuid">;
 
 /** One pager's state, for {@link historyPager}'s subscribers. */
 export interface HistoryPagerState {
@@ -159,6 +168,8 @@ const MERGED_COLLECTIONS = [
   "taskEvidence",
   "workOrderAttachments",
   "partsRequests",
+  "purchaseOrders",
+  "flightPlans",
 ] as const;
 type MergedCollection = (typeof MERGED_COLLECTIONS)[number];
 // What an on-demand load fetched, for which item and write mark.
@@ -170,11 +181,15 @@ interface LoadedItem<T> {
 }
 type Keyed = { uuid: string };
 // The change-log actions that write each list's records: a work order page
-// also carries its job cards and cost record.
+// also carries its job cards and cost record, a request page its purchases,
+// which orders change, and a plan page the flights logged against it.
 const WRITE_ACTIONS: Record<HistoryKind, string[]> = {
   flights: ["flight."],
   discrepancies: ["discrepancy."],
   workOrders: ["workOrder.", "taskCard.", "labor.", "cost."],
+  partsRequests: ["partsRequest.", "po."],
+  purchaseOrders: ["po."],
+  flightPlans: ["plan.", "flight."],
 };
 /**
  * A list's older history for a screen: nothing until the user asks, then a
@@ -188,22 +203,24 @@ const WRITE_ACTIONS: Record<HistoryKind, string[]> = {
  */
 export function useHistoryPages(list: HistoryList): HistoryPages {
   const { backend, online, connected, snapshot } = useWorkspace();
-  const { kind, aircraftUuid, status } = list;
-  const pager = useMemo(
-    () =>
-      new HistoryPager({ kind, aircraftUuid, status }, (request) =>
-        backend
-          ? backend.historyPage(request)
-          : Promise.reject(new Error(LOAD_ERROR)),
-      ),
-    [backend, kind, aircraftUuid, status],
-  );
+  const { kind, aircraftUuid, status, vendor } = list;
+  // A record's source is a new object each render; its text is stable.
+  const sourceKey = JSON.stringify(list.source ?? null);
+  const pager = useMemo(() => {
+    const source = (JSON.parse(sourceKey) as RequestSource | null) ?? undefined;
+    const filters = { kind, aircraftUuid, status, source, vendor };
+    return new HistoryPager(filters, (request) =>
+      backend
+        ? backend.historyPage(request)
+        : Promise.reject(new Error(LOAD_ERROR)),
+    );
+  }, [backend, kind, aircraftUuid, status, sourceKey, vendor]);
+  const scope = historyScope(snapshot, list);
   const state = useSyncExternalStore(
     pager.subscribe,
     pager.getState,
     pager.getState,
   );
-  const scope = historyScope(snapshot, list);
   const mark = historyWriteMark(snapshot, kind);
   const live = !!backend && online && connected;
   useEffect(
@@ -302,6 +319,12 @@ export function withHistory(s: Snapshot, ...rows: HistoryRows[]): Snapshot {
   );
   const members = rows.flatMap((r) => r.members ?? []);
   if (members.length) merged.members = joinMembers(s.members, members);
+  const purchases = rows.flatMap((r) => r.partsRequestPurchases ?? []);
+  if (purchases.length)
+    merged.partsRequestPurchases = joinPurchases(
+      s.partsRequestPurchases ?? [],
+      purchases,
+    );
   return Object.keys(merged).length ? { ...s, ...merged } : s;
 }
 
@@ -351,8 +374,10 @@ export function historyScope(s: Snapshot | null, list: HistoryList): string {
     s?.user.id ?? "",
     s?.activeProgramUuid ?? "",
     list.kind,
-    list.aircraftUuid ?? "",
+    list.kind === "purchaseOrders" ? "" : (list.aircraftUuid ?? ""),
     list.kind === "flights" ? (list.status ?? "") : "",
+    list.kind === "partsRequests" ? (list.source ?? null) : null,
+    list.kind === "purchaseOrders" ? (list.vendor ?? null) : null,
   ]);
 }
 
@@ -482,11 +507,17 @@ export class HistoryPager {
 }
 
 function pageRequest(
-  { kind, aircraftUuid, status }: HistoryList,
+  list: HistoryList,
   cursor: string | null,
 ): HistoryPageRequest {
-  const page = { aircraftUuid, cursor, numItems: HISTORY_PAGE_SIZE };
-  return kind === "flights" ? { kind, status, ...page } : { kind, ...page };
+  const page = { cursor, numItems: HISTORY_PAGE_SIZE };
+  const { kind, aircraftUuid } = list;
+  if (kind === "purchaseOrders") return { kind, vendor: list.vendor, ...page };
+  if (kind === "flights")
+    return { kind, aircraftUuid, status: list.status, ...page };
+  if (kind === "partsRequests")
+    return { kind, aircraftUuid, source: list.source, ...page };
+  return { kind, aircraftUuid, ...page };
 }
 
 function appendPage(loaded: LoadedHistory, page: HistoryPage): LoadedHistory {
@@ -525,6 +556,19 @@ function joinRows<T extends { uuid: string }>(
     joined.push(row);
   }
   return joined;
+}
+
+// The snapshot's allocation wins, as its rows do: it is reactive.
+function joinPurchases(
+  kept: RequestPurchase[],
+  added: RequestPurchase[],
+): RequestPurchase[] {
+  const key = (a: PurchaseKey) => `${a.poUuid} ${a.lineUuid} ${a.requestUuid}`;
+  const seen = new Set(kept.map(key));
+  return [
+    ...kept,
+    ...added.filter((a) => !seen.has(key(a)) && seen.add(key(a))),
+  ];
 }
 
 function joinMembers(kept: Member[], added: Member[]): Member[] {

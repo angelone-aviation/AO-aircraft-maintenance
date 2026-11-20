@@ -5,7 +5,8 @@
  * Layer: Test. Fixture for convex-test suites; never shipped in the build.
  * Dependencies: convex/_generated (types), convex/collections.ts (codec),
  *   convex/recordNumbers.ts, convex/costLedger.ts, src/data/demo.ts,
- *   src/domain stored-record schemas and builders.
+ *   src/domain stored-record schemas and builders, purchasingWindow
+ *   (allocations), ./purchasingEdges.
  *
  * Volumes follow the size test's profile (per aircraft per year: 300
  * flights, 12 work orders of 15 job cards, 30 problem reports, 60 flight
@@ -32,6 +33,7 @@ import { partsRequestSchema } from "../../src/domain/partsRequests";
 import { poSchema } from "../../src/domain/purchaseOrders";
 import { taskCardDefaults, taskCardSchema } from "../../src/domain/taskCards";
 import { workOrderSchema } from "../../src/domain/workOrders";
+import { allocatedRequests } from "../../src/domain/purchasingWindow";
 import { purchasingEdges, type EdgeAnchors } from "./purchasingEdges";
 
 export const VOLUME_PROGRAM = "demo-program";
@@ -146,6 +148,7 @@ export async function seedProgramVolume(
   for (let back = 1; back < years; back++) gen.pastYear(tables, back, blob);
   tables.recordNumbers = numberRows(tables);
   tables.costLedger = ledgerRows(tables);
+  tables.purchaseAllocations = allocationRows(tables);
   for (const [table, rows] of Object.entries(tables))
     for (const row of rows) await ctx.db.insert(table as "audit", row as never);
   return {
@@ -205,7 +208,7 @@ export async function addOlderHistory(
 function ledgerRows(tables: Record<string, Row[]>) {
   const decoded = <N extends "workOrders" | "taskCards" | "partsRequests">(
     table: N,
-  ) => decode(table, tables[table] as StoredRow<N>[]);
+  ) => decode(table, tables[table] as { payload: string }[]);
   const orders = new Map(decoded("workOrders").map((w) => [w.uuid, w]));
   const cards = decoded("taskCards");
   const requests = decoded("partsRequests").filter(
@@ -224,6 +227,21 @@ function ledgerRows(tables: Record<string, Row[]>) {
       };
       return derivedLedger(orders.get(record.workOrderUuid)!, records) as Row[];
     },
+  );
+}
+
+// The allocation rows the app writes beside each purchase order.
+function allocationRows(tables: Record<string, Row[]>) {
+  const orders = decode(
+    "purchaseOrders",
+    tables.purchaseOrders as { payload: string }[],
+  );
+  return orders.flatMap((p) =>
+    allocatedRequests(p).map((requestUuid) => ({
+      programUuid: p.programUuid,
+      poUuid: p.uuid,
+      requestUuid,
+    })),
   );
 }
 
@@ -953,8 +971,10 @@ class Generator {
       stock: this.stock[0],
       stockRequest: a.uuid === demoAircraft(0).uuid,
     } as EdgeAnchors;
-    const rows = purchasingEdges(anchors, () => this.uuid());
+    const { flights, ...rows } = purchasingEdges(anchors, () => this.uuid());
     for (const [table, added] of Object.entries(rows)) t[table].push(...added);
+    // A flight is an interface, which no index signature describes.
+    t.flights.push(...flights.map((f): Row => ({ ...f })));
   }
 
   private anchor(a: Aircraft, found: Partial<EdgeAnchors>) {

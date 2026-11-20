@@ -5,8 +5,8 @@
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./fileColumns, ./backups,
  *   ./faaCredentials, ./urgentAlerts, ./memberships, ./validators,
- *   ./recordsDate, ./costLedger,
- *   ./workingSet, ./historyWindow, src/domain (model, programs, retention,
+ *   ./recordsDate, ./costLedger, ./workingSet, ./historyWindow,
+ *   ./windowedPurchasing, src/domain (model, programs, retention,
  *   flightSubmission, flightReview, ownerView, boardView, costs, deferrals,
  *   requiredParts, rejection, aircraftStatus).
  */
@@ -27,11 +27,8 @@ import {
   inspectionDocs,
   discrepancyDocs,
   openReportDocs,
-  flightPlanDocs,
   faaMonitorDocs,
   airworthinessDocs,
-  partsRequestDocs,
-  purchaseOrderDocs,
   checklistDocs,
   componentTemplateDocs,
   componentSetupDocs,
@@ -39,7 +36,15 @@ import {
   auditDocs,
   expiringItemDocs,
 } from "./programContext";
-import { windowedHistory, windowedReducedHistory } from "./historyWindow";
+import {
+  windowedHistory,
+  windowedReducedHistory,
+  type WindowedHistory,
+} from "./historyWindow";
+import {
+  windowedPurchasing,
+  type WindowedPurchasing,
+} from "./windowedPurchasing";
 import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
 import { evidenceByCard, inventoryFilesByItem } from "./fileColumns";
@@ -64,7 +69,7 @@ import {
   requiredPartsSchema,
 } from "../src/domain/requiredParts";
 import { activeProgram, programPermission } from "../src/domain/programs";
-import { workspaceWindow, type HistoryRecords } from "../src/domain/retention";
+import { workspaceWindow } from "../src/domain/retention";
 import {
   isOwnerView,
   ownerPortalAircraft,
@@ -103,7 +108,8 @@ type Ctx = QueryCtx | MutationCtx;
  * The caller's workspace: the active Flight Program's records within the
  * retention window (workspaceWindow, ADR-0013), narrowed by scopedSnapshot to
  * what the caller may see, with photo flags and attachment lists. Older
- * flights, problem reports and work orders load through convex/history.ts.
+ * flights, problem reports, work orders, parts requests, purchase orders and
+ * flight plans load through convex/history.ts.
  *
  * @returns null without an active account and session. An aircraft owner
  *   gets the owner whitelist, with file links only for their aircraft's
@@ -455,9 +461,10 @@ async function boardCosts(
 }
 
 // What the window can keep of the active program, before workspaceWindow
-// narrows and scopes it: the complete collections whole (H5), history read
-// by the window's indexes (convex/historyWindow.ts). Keys follow the order
-// the full load had, which sets the snapshot's key order.
+// narrows and scopes it: the complete collections whole, history and
+// purchasing read by the window's indexes (convex/historyWindow.ts,
+// convex/windowedPurchasing.ts). Keys follow the order the full load had,
+// which sets the snapshot's key order.
 async function windowedLoad(
   ctx: QueryCtx,
   { user, session }: Identity,
@@ -468,11 +475,9 @@ async function windowedLoad(
   const aircraft = state.aircraft;
   const management = await managementDocs(ctx, program);
   const readable = aircraft.filter((a) => can(state, a.uuid, "read"));
-  const history = await windowedHistory(
-    ctx,
-    { program, fleet: aircraft, readable },
-    now,
-  );
+  const scope = { program, fleet: aircraft, readable };
+  const history = await windowedHistory(ctx, scope, now);
+  const purchasing = await windowedPurchasing(ctx, scope, history, now);
   return {
     ...state,
     faaCredential: await faaCredentialStatus(ctx),
@@ -482,8 +487,8 @@ async function windowedLoad(
       member,
     ),
     flights: history.flights,
-    ...(await aircraftRecords(ctx, aircraft, history)),
-    ...(await programRecords(ctx, program)),
+    ...(await aircraftRecords(ctx, aircraft, history, purchasing)),
+    ...(await programRecords(ctx, program, purchasing)),
     inspections: await inspectionDocs(ctx, aircraft, management),
     management: decode("management", management),
     audit: await auditDocs(ctx, program, aircraft),
@@ -528,12 +533,13 @@ async function snapshotMembers(
   return [...new Map(users.map((u) => [u._id, u])).values()];
 }
 
-// The aircraft's windowed history beside the records that stay complete
-// (H5), in the full load's key order.
+// The aircraft's windowed history beside the records that stay complete,
+// in the full load's key order.
 async function aircraftRecords(
   ctx: QueryCtx,
   aircraft: Aircraft[],
-  history: HistoryRecords,
+  history: WindowedHistory,
+  purchasing: WindowedPurchasing,
 ) {
   return {
     taskCards: history.taskCards,
@@ -544,21 +550,19 @@ async function aircraftRecords(
       await airworthinessDocs(ctx, aircraft),
     ),
     workOrders: history.workOrders,
-    flightPlans: decode("flightPlans", await flightPlanDocs(ctx, aircraft)),
+    flightPlans: purchasing.flightPlans,
     discrepancies: history.discrepancies,
   };
 }
 
-async function programRecords(ctx: QueryCtx, program: string | undefined) {
+async function programRecords(
+  ctx: QueryCtx,
+  program: string | undefined,
+  purchasing: WindowedPurchasing,
+) {
   return {
-    partsRequests: decode(
-      "partsRequests",
-      await partsRequestDocs(ctx, program),
-    ),
-    purchaseOrders: decode(
-      "purchaseOrders",
-      await purchaseOrderDocs(ctx, program),
-    ),
+    partsRequests: purchasing.partsRequests,
+    purchaseOrders: purchasing.purchaseOrders,
     checklists: decode("checklists", await checklistDocs(ctx, program)),
     componentTemplates: decode(
       "componentTemplates",

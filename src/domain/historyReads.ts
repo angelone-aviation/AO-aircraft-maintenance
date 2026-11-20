@@ -3,8 +3,9 @@
  *   everything filed on it, one aircraft's flights over a span of time, and
  *   records named by uuid.
  * Layer: Domain. Pure functions over a scoped snapshot; no I/O, no React.
- * Dependencies: ./model, ./workOrders, ./taskCards, ./costs, ./partsRequests
- *   (types), ./retention (order, named members), ./auditHistory (the
+ * Dependencies: ./model, ./workOrders, ./taskCards, ./costs, ./partsRequests,
+ *   ./purchaseOrders (types), ./retention (order, named members, card work
+ *   orders), ./purchasingWindow (countsToward), ./auditHistory (the
  *   not-found message), ./rejection.
  *
  * The server scopes a snapshot of just the records a read loads and calls
@@ -15,12 +16,15 @@ import type { Discrepancy, Flight, Member, Snapshot } from "./model";
 import type { WorkOrder, WorkOrderAttachment } from "./workOrders";
 import type { TaskCard, TaskEvidence } from "./taskCards";
 import type { CostRecord } from "./costs";
-import type { PartsRequest } from "./partsRequests";
+import type { PartsRequest, RequestPurchase } from "./partsRequests";
+import type { PurchaseOrder } from "./purchaseOrders";
 import {
+  cardWorkOrders,
   compareHistoryPositions,
   historyPosition,
   namedMembers,
 } from "./retention";
+import { countsToward } from "./purchasingWindow";
 import { HISTORY_NOT_FOUND } from "./auditHistory";
 import { Rejection } from "./rejection";
 
@@ -53,6 +57,10 @@ export interface RecordLookup {
   taskCardUuids: string[];
   /** Flight plans whose logged flights are wanted. */
   flightPlanUuids: string[];
+  /** Parts requests, such as those a purchase-order line allocates. */
+  partsRequestUuids?: string[];
+  /** Purchase orders; only an inventory administrator finds any. */
+  purchaseOrderUuids?: string[];
 }
 
 /** What a {@link RecordLookup} finds. */
@@ -64,6 +72,10 @@ export interface FoundRecords {
   flights: Flight[];
   /** The members the reports and flights name, for their names. */
   members: Member[];
+  partsRequests: PartsRequest[];
+  purchaseOrders: PurchaseOrder[];
+  /** The found requests' purchase allocations, from every order. */
+  partsRequestPurchases: RequestPurchase[];
 }
 
 /** One work order with everything filed on it, as its program shows it. */
@@ -76,8 +88,10 @@ export interface WorkOrderHistory {
   /** The files on its job cards and archived job cards. */
   taskEvidence: TaskEvidence[];
   workOrderAttachments: WorkOrderAttachment[];
-  /** The parts requests raised from it. */
+  /** The parts requests it counts: raised on it or on its job cards. */
   partsRequests: PartsRequest[];
+  /** Those requests' purchase allocations, from every order. */
+  partsRequestPurchases: RequestPurchase[];
 }
 
 /** One aircraft's flights over a span of start instants. */
@@ -116,6 +130,10 @@ export function workOrderHistory(s: Snapshot, uuid: string): WorkOrderHistory {
   const cards = new Set(
     [...taskCards, ...archivedTaskCards].map((c) => c.uuid),
   );
+  const orders = cardWorkOrders({ taskCards, archivedTaskCards });
+  const partsRequests = (s.partsRequests ?? []).filter((r) =>
+    countsToward(r, new Set([uuid]), orders),
+  );
   return {
     workOrder,
     taskCards,
@@ -129,9 +147,8 @@ export function workOrderHistory(s: Snapshot, uuid: string): WorkOrderHistory {
     workOrderAttachments: (s.workOrderAttachments ?? []).filter(
       (f) => f.workOrderUuid === uuid,
     ),
-    partsRequests: (s.partsRequests ?? []).filter(
-      (r) => r.source.workOrderUuid === uuid,
-    ),
+    partsRequests,
+    partsRequestPurchases: purchasesOf(s, partsRequests),
   };
 }
 
@@ -193,11 +210,23 @@ export function flightRange(
  *   than {@link MAX_RECORD_LOOKUPS}.
  */
 export function assertRecordLookup(request: RecordLookup): void {
-  const named =
+  if (lookupSize(request) > MAX_RECORD_LOOKUPS)
+    throw new Rejection(RECORD_LOOKUP_TOO_LARGE);
+}
+
+/**
+ * How many uuids a lookup names, which {@link MAX_RECORD_LOOKUPS} bounds.
+ *
+ * @param request - The lookup.
+ */
+export function lookupSize(request: RecordLookup): number {
+  return (
     request.discrepancyUuids.length +
     request.taskCardUuids.length +
-    request.flightPlanUuids.length;
-  if (named > MAX_RECORD_LOOKUPS) throw new Rejection(RECORD_LOOKUP_TOO_LARGE);
+    request.flightPlanUuids.length +
+    (request.partsRequestUuids?.length ?? 0) +
+    (request.purchaseOrderUuids?.length ?? 0)
+  );
 }
 
 /**
@@ -224,6 +253,9 @@ export function lookupRecords(
   const flights = s.flights.filter(
     (f) => !!f.flightPlanUuid && plans.has(f.flightPlanUuid),
   );
+  const partsRequests = (s.partsRequests ?? []).filter(
+    named(request.partsRequestUuids ?? []),
+  );
   return {
     discrepancies,
     taskCards: (s.taskCards ?? []).filter(named(request.taskCardUuids)),
@@ -232,5 +264,19 @@ export function lookupRecords(
     ),
     flights,
     members: namedMembers(s.members, { flights, discrepancies }),
+    partsRequests,
+    purchaseOrders: (s.purchaseOrders ?? []).filter(
+      named(request.purchaseOrderUuids ?? []),
+    ),
+    partsRequestPurchases: purchasesOf(s, partsRequests),
   };
+}
+
+// A scoped snapshot carries its requests' allocations; the requests named
+// take theirs, in the snapshot's order.
+function purchasesOf(s: Snapshot, requests: PartsRequest[]): RequestPurchase[] {
+  const uuids = new Set(requests.map((r) => r.uuid));
+  return (s.partsRequestPurchases ?? []).filter((a) =>
+    uuids.has(a.requestUuid),
+  );
 }

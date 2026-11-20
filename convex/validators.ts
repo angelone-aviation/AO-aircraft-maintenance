@@ -1,6 +1,7 @@
 /**
- * Responsibility: Convex validators for the aircraft, flight, outbox and
- *   deferral shapes shared by convex/schema.ts and function arguments.
+ * Responsibility: Convex validators for the aircraft, flight, outbox,
+ *   deferral and parts-request source shapes shared by convex/schema.ts and
+ *   function arguments.
  * Layer: Server. Declarations only; no functions.
  * Dependencies: convex/values.
  *
@@ -282,3 +283,23 @@ export const deferralValidator = v.union(
     expiresOn: v.optional(v.string()),
   }),
 );
+
+/**
+ * What a parts request is for, as requestSourceSchema
+ * (src/domain/partsRequests.ts) describes it: a record's request list pages
+ * by it.
+ */
+export const requestSourceValidator = v.object({
+  kind: v.union(
+    v.literal("stock"),
+    v.literal("discrepancy"),
+    v.literal("inspection"),
+    v.literal("airworthiness"),
+    v.literal("workTask"),
+    v.literal("jobCard"),
+    v.literal("componentRequirement"),
+    v.literal("component"),
+  ),
+  uuid: v.string(),
+  workOrderUuid: v.string(),
+});

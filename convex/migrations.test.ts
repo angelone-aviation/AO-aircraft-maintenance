@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins the derived-column backfill, with the file rows'
- *   owner copies, and the recordNumbers rebuild: each fills older rows page
- *   by page, changes nothing else, writes no change-log row, reports what it
- *   filled, finds nothing on a second run, and names a damaged row.
+ *   owner copies and the purchase orders' allocation rows, and the
+ *   recordNumbers rebuild: each fills older rows page by page, changes
+ *   nothing else, writes no change-log row, reports what it filled, finds
+ *   nothing on a second run, and names a damaged row.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/migrations.ts, convex/schema.ts,
  *   tests/fixtures (storedCollections, derivedColumns), src/data/demo.ts.
@@ -36,6 +37,7 @@ const TABLES: DerivedTable[] = [
   "costs",
   "partsRequests",
   "purchaseOrders",
+  "flightPlans",
 ];
 // File rows that copy their owner, filled after the derived tables.
 const FILE_TABLES = ["taskEvidence", "inventoryFiles"];
@@ -105,7 +107,7 @@ it("fills the derived columns on older rows, page by page, and changes nothing e
   const before = await readRows(t);
   const result = await t.action(backfill, {});
   expect(result).toEqual({
-    missing: OLD_FLIGHTS + 7,
+    missing: OLD_FLIGHTS + 8,
     tables: {
       flights: OLD_FLIGHTS,
       workOrders: 1,
@@ -114,6 +116,7 @@ it("fills the derived columns on older rows, page by page, and changes nothing e
       costs: 2,
       partsRequests: 1,
       purchaseOrders: 1,
+      flightPlans: 1,
       taskEvidence: 0,
       inventoryFiles: 0,
     },
@@ -146,6 +149,40 @@ it("finds nothing missing on a second run, and changes nothing", async () => {
     ),
   });
   expect(await readRows(t)).toEqual(filled);
+});
+
+// Rows written before H5 hold no allocation rows; a stale one, such as a
+// request taken off the order, is deleted. Only the order counts as filled.
+it("writes each purchase order's allocation rows, and deletes stale ones", async () => {
+  const t = await olderRows();
+  await t.run(async (ctx) => {
+    const row = (await ctx.db.query("purchaseOrders").first())!;
+    const po = JSON.parse(row.payload) as { lines: object[] };
+    const allocations = [
+      { requestUuid: "request-1", lineUuid: "request-line-1", quantity: 1 },
+    ];
+    po.lines = po.lines.map((l) => ({ ...l, requestAllocations: allocations }));
+    await ctx.db.patch(row._id, { payload: JSON.stringify(po) });
+    await ctx.db.insert("purchaseAllocations", {
+      programUuid: PROGRAM,
+      poUuid: "po-1",
+      requestUuid: "request-gone",
+    });
+  });
+  expect((await t.action(backfill, {})).tables.purchaseOrders).toBe(1);
+  const rows = await t.run((ctx) =>
+    ctx.db.query("purchaseAllocations").collect(),
+  );
+  expect(
+    rows.map(({ programUuid, poUuid, requestUuid }) => ({
+      programUuid,
+      poUuid,
+      requestUuid,
+    })),
+  ).toEqual([
+    { programUuid: PROGRAM, poUuid: "po-1", requestUuid: "request-1" },
+  ]);
+  expect((await t.action(backfill, {})).missing).toBe(0);
 });
 
 it("refills only the rows that lost a column", async () => {

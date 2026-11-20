@@ -1,36 +1,36 @@
 {
  "snapshot.admin": {
   "1": {
-   "bytes": 8372810,
-   "documents": 5768,
-   "indexRanges": 580
+   "bytes": 8326710,
+   "documents": 5678,
+   "indexRanges": 641
   },
   "2": {
-   "bytes": 9080079,
-   "documents": 6428,
-   "indexRanges": 580
+   "bytes": 8328459,
+   "documents": 5678,
+   "indexRanges": 641
   },
   "3": {
-   "bytes": 9785599,
-   "documents": 7088,
-   "indexRanges": 580
+   "bytes": 8328459,
+   "documents": 5678,
+   "indexRanges": 641
   }
  },
  "snapshot.pilot": {
   "1": {
-   "bytes": 4981426,
-   "documents": 3835,
-   "indexRanges": 287
+   "bytes": 4585108,
+   "documents": 3436,
+   "indexRanges": 320
   },
   "2": {
-   "bytes": 5688695,
-   "documents": 4495,
-   "indexRanges": 287
+   "bytes": 4586857,
+   "documents": 3436,
+   "indexRanges": 320
   },
   "3": {
-   "bytes": 6394215,
-   "documents": 5155,
-   "indexRanges": 287
+   "bytes": 4586857,
+   "documents": 3436,
+   "indexRanges": 320
   }
  },
  "snapshot.owner": {
@@ -69,17 +69,17 @@
  },
  "workOrder.save": {
   "1": {
-   "bytes": 980769,
+   "bytes": 980909,
    "documents": 1485,
    "indexRanges": 50
   },
   "2": {
-   "bytes": 980769,
+   "bytes": 980909,
    "documents": 1485,
    "indexRanges": 50
   },
   "3": {
-   "bytes": 980769,
+   "bytes": 980909,
    "documents": 1485,
    "indexRanges": 50
   }
@@ -120,53 +120,53 @@
  },
  "partsRequest.save": {
   "1": {
-   "bytes": 1385399,
+   "bytes": 1402284,
    "documents": 1806,
    "indexRanges": 36
   },
   "2": {
-   "bytes": 1815519,
+   "bytes": 1849564,
    "documents": 2106,
    "indexRanges": 36
   },
   "3": {
-   "bytes": 2245639,
+   "bytes": 2296844,
    "documents": 2406,
    "indexRanges": 36
   }
  },
  "cost.partUnitCost": {
   "1": {
-   "bytes": 767272,
+   "bytes": 767412,
    "documents": 1079,
    "indexRanges": 58
   },
   "2": {
-   "bytes": 767272,
+   "bytes": 767412,
    "documents": 1079,
    "indexRanges": 58
   },
   "3": {
-   "bytes": 767272,
+   "bytes": 767412,
    "documents": 1079,
    "indexRanges": 58
   }
  },
  "purchaseOrder.save": {
   "1": {
-   "bytes": 1188373,
+   "bytes": 1205292,
    "documents": 1560,
-   "indexRanges": 21
+   "indexRanges": 22
   },
   "2": {
-   "bytes": 1618493,
+   "bytes": 1652572,
    "documents": 1860,
-   "indexRanges": 21
+   "indexRanges": 22
   },
   "3": {
-   "bytes": 2048613,
+   "bytes": 2099852,
    "documents": 2160,
-   "indexRanges": 21
+   "indexRanges": 22
   }
  },
  "auditHistory.weeklySummary": {

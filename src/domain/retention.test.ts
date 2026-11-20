@@ -14,6 +14,7 @@ import {
   RETENTION_DAYS,
   compareHistoryPositions,
   compareWorkOrderList,
+  emptyHistoryRecords,
   historyCursor,
   historyPage,
   historyPosition,
@@ -535,7 +536,7 @@ describe("the paging contract the server shares", () => {
   it("puts every row the window leaves out after its list's start", () => {
     for (const kind of ["flights", "discrepancies", "workOrders"] as const) {
       const start = historyStart(kind, NOW);
-      const rows: HistoryRows[typeof kind][] = older(kind);
+      const rows = older(kind) as HistoryRows[typeof kind][];
       for (const row of rows)
         expect(
           compareHistoryPositions(start, historyPosition(kind, row)),
@@ -666,14 +667,10 @@ function allPages(s: Snapshot, request: HistoryPageRequest) {
 }
 
 function merge(pages: HistoryRecords[]): HistoryRecords {
-  return {
-    flights: pages.flatMap((p) => p.flights),
-    discrepancies: pages.flatMap((p) => p.discrepancies),
-    workOrders: pages.flatMap((p) => p.workOrders),
-    taskCards: pages.flatMap((p) => p.taskCards),
-    archivedTaskCards: pages.flatMap((p) => p.archivedTaskCards),
-    costs: pages.flatMap((p) => p.costs),
-  };
+  const merged = emptyHistoryRecords();
+  for (const key of Object.keys(merged) as (keyof HistoryRecords)[])
+    Object.assign(merged, { [key]: pages.flatMap((p): unknown[] => p[key]) });
+  return merged;
 }
 
 // Newest first; equal keys by uuid, highest first.
@@ -684,14 +681,7 @@ function listOrder(rows: (string | number)[][]) {
 }
 
 function emptyRecords(): HistoryRecords {
-  return {
-    flights: [],
-    discrepancies: [],
-    workOrders: [],
-    taskCards: [],
-    archivedTaskCards: [],
-    costs: [],
-  };
+  return emptyHistoryRecords();
 }
 
 function snapshotOf(records: Partial<Snapshot>): Snapshot {

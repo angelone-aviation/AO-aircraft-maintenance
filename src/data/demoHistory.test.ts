@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "./demo";
 import { demoHistoryCalls, demoWorkspaceView } from "./demoHistory";
 import {
+  emptyHistoryRecords,
   historyPage,
   retainedSnapshot,
   type HistoryKind,
@@ -112,14 +113,10 @@ async function followEvery(
   const pages: HistoryRecords[] = [];
   for (const kind of KINDS)
     pages.push(...(await follow(read, scoped, kind, numItems)));
-  return {
-    flights: pages.flatMap((p) => p.flights),
-    discrepancies: pages.flatMap((p) => p.discrepancies),
-    workOrders: pages.flatMap((p) => p.workOrders),
-    taskCards: pages.flatMap((p) => p.taskCards),
-    archivedTaskCards: pages.flatMap((p) => p.archivedTaskCards),
-    costs: pages.flatMap((p) => p.costs),
-  };
+  const merged = emptyHistoryRecords();
+  for (const key of Object.keys(merged) as (keyof HistoryRecords)[])
+    Object.assign(merged, { [key]: pages.flatMap((p): unknown[] => p[key]) });
+  return merged;
 }
 
 async function follow(

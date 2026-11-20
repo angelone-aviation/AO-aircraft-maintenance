@@ -699,9 +699,10 @@ export interface Backend {
   auditSummary(period: SummaryPeriod): Promise<AuditSummaryResult>;
   /**
    * Pages the older history the workspace's window leaves out: flights,
-   * problem reports, or work orders with their job cards, archived job cards
-   * and costs, newest first (historyPage in src/domain/retention.ts). Needs
-   * a connection.
+   * problem reports, work orders with their job cards, archived job cards
+   * and costs, parts requests with their purchase allocations, purchase
+   * orders, or flight plans with their flights, newest first (historyPage in
+   * src/domain/retention.ts). Needs a connection.
    *
    * @param request - The list, its filters, the previous page's cursor and
    *   the size.
@@ -732,9 +733,10 @@ export interface Backend {
   flightsInRange(request: FlightRangeRequest): Promise<FlightRange>;
   /**
    * Records a screen names by uuid, inside the window or not: problem
-   * reports, job cards (live or archived) and the flights logged against
-   * flight plans (lookupRecords in src/domain/historyReads.ts). A record the
-   * user may not read is left out, as one that does not exist.
+   * reports, job cards (live or archived), the flights logged against flight
+   * plans, and parts requests (with their purchase allocations) and purchase
+   * orders (lookupRecords in src/domain/historyReads.ts). A record the user
+   * may not read is left out, as one that does not exist.
    *
    * @throws "Ask for at most 100 records at a time."
    */
@@ -1271,13 +1273,22 @@ function bindHistoryCalls(client: ConvexReactClient) {
 // Each list is its own query; the request's kind picks it.
 function queryHistoryPage(
   client: ConvexReactClient,
-  { kind, ...request }: HistoryPageRequest,
+  request: HistoryPageRequest,
 ): Promise<HistoryPage> {
-  if (kind === "flights")
-    return client.query(api.history.flights, inProgram(request));
-  if (kind === "discrepancies")
-    return client.query(api.history.discrepancies, inProgram(request));
-  return client.query(api.history.workOrders, inProgram(request));
+  if (request.kind === "flights") {
+    const { kind: _flights, ...page } = request;
+    return client.query(api.history.flights, inProgram(page));
+  }
+  if (request.kind === "partsRequests") {
+    const { kind: _requests, ...page } = request;
+    return client.query(api.history.partsRequests, inProgram(page));
+  }
+  if (request.kind === "purchaseOrders") {
+    const { kind: _orders, ...page } = request;
+    return client.query(api.history.purchaseOrders, inProgram(page));
+  }
+  const { kind, ...page } = request;
+  return client.query(api.history[kind], inProgram(page));
 }
 
 // The program is read once, before any upload, so the ticket and the finish

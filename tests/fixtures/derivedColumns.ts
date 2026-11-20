@@ -26,7 +26,8 @@ export type DerivedTable =
   | "archivedTaskCards"
   | "costs"
   | "partsRequests"
-  | "purchaseOrders";
+  | "purchaseOrders"
+  | "flightPlans";
 
 /**
  * Expects each row to hold exactly the derived columns its record derives:

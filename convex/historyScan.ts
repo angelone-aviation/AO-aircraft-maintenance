@@ -1,8 +1,8 @@
 /**
  * Responsibility: Reads one history list newest first from several index
  *   ranges, merged by position, until a page is full or a budget is spent.
- * Layer: Server. Merge logic over the range readers convex/history.ts
- *   builds; it holds no Convex context itself.
+ * Layer: Server. Merge logic over range readers built from the callers'
+ *   queries; it holds no Convex context itself.
  * Dependencies: convex/values (document size), src/domain/retention.
  *
  * A list spans one index range per aircraft (two for work orders), which
@@ -29,6 +29,32 @@ export type ReadAfter<T, P extends HistoryPosition> = (
   limit: number,
 ) => Promise<T[]>;
 
+/** A stored row, as the budget sizes it. */
+type Row = { [field: string]: Value | undefined };
+
+/**
+ * One index range read after a position: the rest of the position's key's
+ * ties (lower uuids), then lower keys, each read spending `budget`. Convex
+ * orders strings by UTF-8 bytes and the domain by UTF-16 code units; uuids
+ * and ISO dates are ASCII, where the two agree.
+ *
+ * @param ties - Rows of one key with a uuid below the given one, newest
+ *   first.
+ * @param below - Rows of keys below the given one, newest first.
+ * @returns The range's reader for {@link scanHistory}.
+ */
+export function rangeAfter<T extends Row, K extends string | number>(
+  budget: ReadBudget,
+  ties: (key: K, uuid: string, limit: number) => Promise<T[]>,
+  below: (key: K, limit: number) => Promise<T[]>,
+): ReadAfter<T, [K, string]> {
+  return async ([key, uuid], limit) => {
+    const tied = uuid === "" ? [] : budget.spend(await ties(key, uuid, limit));
+    if (tied.length === limit) return tied;
+    return [...tied, ...budget.spend(await below(key, limit - tied.length))];
+  };
+}
+
 /** What one request has read, against {@link MAX_SCAN_RANGES} and bytes. */
 export class ReadBudget {
   private ranges = 0;
@@ -39,7 +65,7 @@ export class ReadBudget {
    *
    * @returns The rows, unchanged.
    */
-  spend<T extends { [field: string]: Value | undefined }>(rows: T[]): T[] {
+  spend<T extends Row>(rows: T[]): T[] {
     this.ranges += 1;
     for (const row of rows) this.bytes += getConvexSize(row);
     return rows;

@@ -4,7 +4,7 @@
  *   one aircraft of the volume fixture.
  * Layer: Test. Fixture builder for convex-test suites; never shipped.
  * Dependencies: convex/collections.ts (codec), src/domain stored-record
- *   schemas (partsRequests, purchaseOrders, flightPlans).
+ *   schemas (partsRequests, purchaseOrders, flightPlans) and model (types).
  *
  * Every record is dated more than the window's 90 days before `end`, so only
  * the rule it was built for keeps it, or nothing does (ADR-0013, H5).
@@ -15,7 +15,11 @@ import {
   type PartsRequest,
 } from "../../src/domain/partsRequests";
 import { poSchema, type PurchaseOrder } from "../../src/domain/purchaseOrders";
-import { flightPlanSchema } from "../../src/domain/flightPlans";
+import {
+  flightPlanSchema,
+  type FlightPlan,
+} from "../../src/domain/flightPlans";
+import type { Flight } from "../../src/domain/model";
 
 const DAY = 86_400_000;
 // Before the 90-day window and the 183-day flight window alike.
@@ -50,113 +54,190 @@ export interface EdgeAnchors {
 type Row = Record<string, unknown>;
 /** Rows by table, as the fixture inserts them. */
 export type EdgeRows = Record<
-  "partsRequests" | "purchaseOrders" | "flightPlans" | "flights",
+  "partsRequests" | "purchaseOrders" | "flightPlans",
   Row[]
->;
+> & { flights: Flight[] };
 
 /**
- * The aircraft's edges:
- * - kept requests: open; partly received on a closed order (kept with it);
- *   on a kept work order's task and on its job card, issued in full; a
- *   recurring list; issued in full but allocated to an issued order (kept);
- *   with `stockRequest`, an open one for stock on no aircraft;
+ * The labels each edge's number (`PR-<label>-…`, `PO-<label>-…`) or plan
+ * source name carries, by what the window does with it.
+ * - kept requests: open; partly received on a closed order; issued in full
+ *   on a kept work order's task and on its job card; a recurring list;
+ *   issued in full but allocated to an issued order; for stock, open;
  * - paged requests: a repair its closed order fulfilled; a cancelled one;
- * - kept orders besides those: closed with a core still owed; paged: a
- *   cancelled one;
- * - plans: one filed late, kept; one flown by a held flight, kept; a
- *   cancelled one, paged.
+ * - kept orders: the closed one a kept request was partly received on; the
+ *   issued one; a closed one with a core still owed; paged: the repair's,
+ *   and a cancelled one;
+ * - plans: one filed late and one flown by a held flight, kept; a cancelled
+ *   one, paged.
+ */
+export const EDGES = {
+  kept: {
+    requests: ["OPEN", "PARTLY", "TASK", "CARD", "LIST", "ORDERED", "STOCK"],
+    orders: ["PARTLY", "ORDERED", "CORE"],
+    plans: ["LATE", "FLOWN"],
+  },
+  paged: {
+    requests: ["REPAIR", "CANCELLED"],
+    orders: ["REPAIR", "CANCELLED"],
+    plans: ["CANCELLED"],
+  },
+} as const;
+
+/**
+ * The label a request or order number carries after its "PR-" or "PO-", or
+ * a plan's whole source name, to compare with {@link EDGES}.
+ *
+ * @param name - The number or source name.
+ * @returns The leading capitals; "" when there are none.
+ */
+export function edgeLabel(name: string): string {
+  return /^(?:P[RO]-)?([A-Z]+)(?:-|$)/.exec(name)?.[1] ?? "";
+}
+
+/** The edges as records, for a snapshot built without a database. */
+export interface EdgeRecords {
+  partsRequests: PartsRequest[];
+  purchaseOrders: PurchaseOrder[];
+  flightPlans: FlightPlan[];
+  /** The held flight that flies the FLOWN plan. */
+  flights: Flight[];
+}
+
+/**
+ * The aircraft's edges as records, as {@link EDGES} lists them; the request
+ * for stock only when `a.stockRequest` asks for it.
+ *
+ * @param a - What the edges point at.
+ * @param uuid - A uuid counter, so runs build the same records.
+ */
+export function edgeRecords(a: EdgeAnchors, uuid: () => string): EdgeRecords {
+  const requests = requestEdges(a, uuid);
+  const purchaseOrders = orderEdges(a, uuid, requests);
+  const flightPlans = planEdges(a, uuid);
+  return {
+    partsRequests: Object.values(requests),
+    purchaseOrders,
+    flightPlans,
+    flights: [heldFlight(a, uuid(), flightPlans[1].uuid)],
+  };
+}
+
+/**
+ * The aircraft's edges as the rows the fixture inserts (encode).
  *
  * @param a - What the edges point at.
  * @param uuid - The fixture's uuid counter, so runs store the same rows.
  */
 export function purchasingEdges(a: EdgeAnchors, uuid: () => string): EdgeRows {
-  const old = a.end - OLD_DAYS * DAY;
-  const at = (days: number) => old + days * DAY;
-  const req = (fields: Partial<PartsRequest> & { lines: Line[] }) =>
-    request(a, uuid(), fields);
-  const open = req({ lines: [line(uuid(), a.stock, 2)] });
-  const partly = req({ lines: [line(uuid(), a.stock, 4)] });
-  const onTask = issued(
-    req({
-      source: { kind: "workTask", uuid: uuid(), workOrderUuid: a.order.uuid },
-      lines: [line(uuid(), a.stock, 1)],
+  const edges = edgeRecords(a, uuid);
+  return {
+    partsRequests: edges.partsRequests.map((r) => encode("partsRequests", r)),
+    purchaseOrders: edges.purchaseOrders.map((p) =>
+      encode("purchaseOrders", p),
+    ),
+    flightPlans: edges.flightPlans.map((p) => encode("flightPlans", p)),
+    flights: edges.flights,
+  };
+}
+
+function requestEdges(a: EdgeAnchors, uuid: () => string) {
+  const at = (days: number) => a.end - (OLD_DAYS - days) * DAY;
+  const req = (label: string, fields: Partial<PartsRequest>, units = 1) =>
+    request(a, uuid(), label, {
+      lines: [line(uuid(), a.stock, units)],
+      ...fields,
+    });
+  const order = { workOrderUuid: a.order.uuid };
+  return {
+    open: req("OPEN", {}, 2),
+    partly: req("PARTLY", {}, 4),
+    onTask: issued(
+      req("TASK", { source: { kind: "workTask", uuid: uuid(), ...order } }),
+      a,
+    ),
+    onCard: issued(
+      req("CARD", {
+        source: { kind: "jobCard", uuid: a.order.card, workOrderUuid: "" },
+        createdAt: at(70),
+      }),
+      a,
+    ),
+    list: req("LIST", {
+      recurring: true,
+      source: { kind: "inspection", uuid: a.inspection, workOrderUuid: "" },
     }),
-    a,
-  );
-  const onCard = issued(
-    req({
-      source: { kind: "jobCard", uuid: a.order.card, workOrderUuid: "" },
-      createdAt: at(70),
-      lines: [line(uuid(), a.stock, 1)],
-    }),
-    a,
-  );
-  const list = req({
-    recurring: true,
-    source: { kind: "inspection", uuid: a.inspection, workOrderUuid: "" },
-    lines: [line(uuid(), a.stock, 1)],
-  });
-  const ordered = issued(req({ lines: [line(uuid(), a.stock, 1)] }), a);
-  const repair = req({
-    mode: "repair",
+    ordered: issued(req("ORDERED", {}), a),
+    repair: repairRequest(req("REPAIR", { mode: "repair" }), a),
+    cancelled: req("CANCELLED", { cancelled: true }),
+    ...(a.stockRequest && { stock: req("STOCK", { aircraftUuid: "" }, 3) }),
+  };
+}
+
+// A repair of the aircraft's component, raised on the component.
+function repairRequest(r: PartsRequest, a: EdgeAnchors): PartsRequest {
+  return {
+    ...r,
     source: { kind: "component", uuid: a.component, workOrderUuid: "" },
-    lines: [
-      {
-        ...line(uuid(), a.stock, 1),
-        componentUuid: a.component,
-        defect: "Rough running",
-        workRequested: "Overhaul",
-      },
-    ],
-  });
-  const cancelled = req({ cancelled: true, lines: [line(uuid(), a.stock, 1)] });
-  const forStock = a.stockRequest
-    ? [req({ aircraftUuid: "", lines: [line(uuid(), a.stock, 3)] })]
-    : [];
-  const orders = [
-    order(a, uuid(), {
+    lines: r.lines.map((l) => ({
+      ...l,
+      componentUuid: a.component,
+      defect: "Rough running",
+      workRequested: "Overhaul",
+    })),
+  };
+}
+
+function orderEdges(
+  a: EdgeAnchors,
+  uuid: () => string,
+  r: ReturnType<typeof requestEdges>,
+): PurchaseOrder[] {
+  const at = (days: number) => a.end - (OLD_DAYS - days) * DAY;
+  const po = (label: string, f: OrderFields) => order(a, uuid(), label, f);
+  return [
+    po("PARTLY", {
       phase: "closed",
-      lines: [poLine(uuid(), a, 4, { cancelled: 2 }, [partly, 4])],
+      lines: [poLine(uuid(), a, 4, { cancelled: 2 }, [r.partly, 4])],
       receivedAt: at(10),
     }),
-    order(a, uuid(), {
+    po("ORDERED", {
       phase: "issued",
-      lines: [poLine(uuid(), a, 2, {}, [ordered, 1])],
+      lines: [poLine(uuid(), a, 2, {}, [r.ordered, 1])],
     }),
-    order(a, uuid(), {
+    po("REPAIR", {
       phase: "closed",
-      lines: [repairLine(uuid(), a, repair)],
+      lines: [repairLine(uuid(), a, r.repair)],
       shippedAt: at(5),
       receivedAt: at(20),
     }),
     withCore(
-      order(a, uuid(), {
+      po("CORE", {
         phase: "closed",
         lines: [poLine(uuid(), a, 1, { exchange: true }, undefined)],
         receivedAt: at(10),
       }),
       uuid(),
     ),
-    order(a, uuid(), {
+    po("CANCELLED", {
       phase: "cancelled",
       lines: [poLine(uuid(), a, 1, { cancelled: 1 }, undefined)],
     }),
   ];
-  const requests = [open, partly, onTask, onCard, list, ordered, repair];
-  requests.push(...forStock);
-  const flown = plan(a, uuid(), { createdAt: old - DAY });
-  return {
-    partsRequests: [...requests, cancelled].map((r) =>
-      encode("partsRequests", r),
-    ),
-    purchaseOrders: orders.map((p) => encode("purchaseOrders", p)),
-    flightPlans: [
-      plan(a, uuid(), { createdAt: a.end - 30 * DAY }),
-      flown,
-      plan(a, uuid(), { createdAt: old - DAY, status: "cancelled" }),
-    ].map((p) => encode("flightPlans", p)),
-    flights: [heldFlight(a, uuid(), flown.uuid)],
-  };
+}
+
+// The second plan is the one the held flight flies.
+function planEdges(a: EdgeAnchors, uuid: () => string) {
+  const old = a.end - OLD_DAYS * DAY;
+  return [
+    plan(a, uuid(), { label: "LATE", createdAt: a.end - 30 * DAY }),
+    plan(a, uuid(), { label: "FLOWN", createdAt: old - DAY }),
+    plan(a, uuid(), {
+      label: "CANCELLED",
+      createdAt: old - DAY,
+      status: "cancelled",
+    }),
+  ];
 }
 
 type Line = PartsRequest["lines"][number];
@@ -185,6 +266,7 @@ function line(
 function request(
   a: EdgeAnchors,
   uuid: string,
+  label: string,
   fields: Partial<PartsRequest> & { lines: Line[] },
 ): PartsRequest {
   const created = fields.createdAt ?? a.end - OLD_DAYS * DAY;
@@ -204,7 +286,7 @@ function request(
     aircraftRegistration: a.aircraft.registration,
     aircraftSerial: a.aircraft.serial,
     aircraftModel: a.aircraft.model,
-    number: `PR-EDGE-${uuid.slice(-6)}`,
+    number: `PR-${label}-${uuid.slice(-4)}`,
     requesterId: a.admin,
     createdAt: created,
     updatedAt: created,
@@ -283,7 +365,12 @@ interface OrderFields {
 }
 
 // Created with the requests, saved again at its last event.
-function order(a: EdgeAnchors, uuid: string, f: OrderFields): PurchaseOrder {
+function order(
+  a: EdgeAnchors,
+  uuid: string,
+  label: string,
+  f: OrderFields,
+): PurchaseOrder {
   const created = a.end - OLD_DAYS * DAY + DAY;
   const moved = (date: number) => ({
     uuid: `${uuid.slice(0, -4)}${date % 10_000}`,
@@ -294,7 +381,7 @@ function order(a: EdgeAnchors, uuid: string, f: OrderFields): PurchaseOrder {
     uuid,
     version: 3,
     programUuid: a.program,
-    number: `PO-EDGE-${uuid.slice(-6)}`,
+    number: `PO-${label}-${uuid.slice(-4)}`,
     vendor: "Example Aviation Supply",
     vendorContact: "orders@example.test",
     shipTo: "Hangar 4",
@@ -363,7 +450,11 @@ function withCore(p: PurchaseOrder, uuid: string): PurchaseOrder {
 function plan(
   a: EdgeAnchors,
   uuid: string,
-  fields: { createdAt: number; status?: "proposed" | "cancelled" },
+  fields: {
+    label: string;
+    createdAt: number;
+    status?: "proposed" | "cancelled";
+  },
 ) {
   return flightPlanSchema.parse({
     uuid,
@@ -388,7 +479,7 @@ function plan(
     pilotText: "Pilot",
     equipment: "S",
     otherInformation: "",
-    sourceName: "",
+    sourceName: fields.label,
     sourceHash: uuid.replace(/-/g, "").padEnd(64, "e"),
     status: fields.status ?? "proposed",
     createdAt: fields.createdAt,
@@ -397,7 +488,7 @@ function plan(
 
 // Held for review, which keeps it, and the plan it was logged against,
 // however old.
-function heldFlight(a: EdgeAnchors, uuid: string, planUuid: string): Row {
+function heldFlight(a: EdgeAnchors, uuid: string, planUuid: string): Flight {
   const start = a.end - OLD_DAYS * DAY + HOUR * 1000;
   return {
     uuid,

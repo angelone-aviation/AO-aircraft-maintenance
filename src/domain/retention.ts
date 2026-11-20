@@ -1,11 +1,13 @@
 /**
  * Responsibility: The history retention window: which flights, problem
- *   reports, work orders, job cards and cost records the workspace keeps, and
- *   the order, cursors and pages of the older history it leaves out.
+ *   reports, work orders, job cards, cost records, parts requests, purchase
+ *   orders and flight plans the workspace keeps, and the order, cursors and
+ *   pages of the older history it leaves out.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./model, ./workOrders, ./taskCards, ./costs (types),
- *   ./programs (scopedSnapshot), ./ownerView, ./boardView, ./auditHistory
- *   (the not-found message), ./rejection.
+ * Dependencies: ./model, ./workOrders, ./taskCards, ./costs, ./flightPlans
+ *   (types), ./partsRequests, ./purchaseOrders (types), ./purchasingWindow,
+ *   ./vendors, ./programs (scopedSnapshot), ./ownerView, ./boardView,
+ *   ./auditHistory (the not-found message), ./rejection.
  *
  * ADR-0013: the workspace keeps open items, recent history and the records
  * the owner portal shows; everything else stays on the server and loads page
@@ -15,6 +17,26 @@ import type { Discrepancy, Flight, Member, Snapshot } from "./model";
 import { isOpenWorkOrder, type WorkOrder } from "./workOrders";
 import { isTaskClosed, type TaskCard } from "./taskCards";
 import type { CostRecord, WorkOrderCost } from "./costs";
+import type { FlightPlan } from "./flightPlans";
+import {
+  requestMatchesSource,
+  requestPurchases,
+  type PartsRequest,
+  type RequestPurchase,
+  type RequestSource,
+} from "./partsRequests";
+import type { PurchaseOrder } from "./purchaseOrders";
+import {
+  countsToward,
+  flownPlans,
+  isKeptPlan,
+  isKeptPurchaseOrder,
+  isKeptRequest,
+  planDepartedAt,
+  purchasesByRequest,
+  type WindowCutoffs,
+} from "./purchasingWindow";
+import { vendorKey } from "./vendors";
 import { scopedSnapshot } from "./programs";
 import { isOwnerView } from "./ownerView";
 import { isBoardView } from "./boardView";
@@ -56,16 +78,31 @@ export interface HistoryRecords {
   taskCards: TaskCard[];
   archivedTaskCards: TaskCard[];
   costs: CostRecord[];
+  flightPlans: FlightPlan[];
+  partsRequests: PartsRequest[];
+  purchaseOrders: PurchaseOrder[];
+  /** The requests' purchase-order allocations, which follow their request:
+   * a non-administrator sees these, never the orders. */
+  partsRequestPurchases: RequestPurchase[];
 }
 
 /** The lists that page older history. */
-export type HistoryKind = "flights" | "discrepancies" | "workOrders";
+export type HistoryKind =
+  | "flights"
+  | "discrepancies"
+  | "workOrders"
+  | "partsRequests"
+  | "purchaseOrders"
+  | "flightPlans";
 
 /** The row each list pages. */
 export interface HistoryRows {
   flights: Flight;
   discrepancies: Discrepancy;
   workOrders: WorkOrder;
+  partsRequests: PartsRequest;
+  purchaseOrders: PurchaseOrder;
+  flightPlans: FlightPlan;
 }
 
 /** Each list's sort key: see {@link historyPosition}. */
@@ -73,6 +110,9 @@ interface HistoryKeys {
   flights: number;
   discrepancies: number;
   workOrders: string;
+  partsRequests: number;
+  purchaseOrders: number;
+  flightPlans: number;
 }
 
 /** Where a row sits in its list: its sort key, then its uuid. */
@@ -82,24 +122,34 @@ export type HistoryPosition<K extends HistoryKind = HistoryKind> = [
 ];
 
 interface PageBase {
-  /** One aircraft, or every aircraft in the snapshot when absent. */
-  aircraftUuid?: string;
   /** The previous page's `continueCursor`; null for the first page. */
   cursor: string | null;
   /** Rows of `kind` wanted, bounded by {@link historyPageSize}. */
   numItems: number;
 }
 
-/** One request for the next page of a list's older history. */
+interface AircraftPage extends PageBase {
+  /** One aircraft, or every aircraft in the snapshot when absent. */
+  aircraftUuid?: string;
+}
+
+/**
+ * One request for the next page of a list's older history. Parts requests
+ * may be narrowed to one record's (requestMatchesSource), and purchase
+ * orders, which belong to no aircraft, to one vendor (vendorKey).
+ */
 export type HistoryPageRequest =
-  | (PageBase & { kind: "flights"; status?: Flight["status"] })
-  | (PageBase & { kind: "discrepancies" | "workOrders" });
+  | (AircraftPage & { kind: "flights"; status?: Flight["status"] })
+  | (AircraftPage & { kind: "discrepancies" | "workOrders" | "flightPlans" })
+  | (AircraftPage & { kind: "partsRequests"; source?: RequestSource })
+  | (PageBase & { kind: "purchaseOrders"; vendor?: string });
 
 /** One page of older history, and where the next one starts. */
 export interface HistoryPage {
-  /** The page's rows of the requested kind; a work order brings its job
-   * cards, archived job cards and cost record, grouped in page order. Other
-   * collections are empty. */
+  /** The page's rows of the requested kind, grouped in page order with what
+   * follows them: a work order its job cards, archived job cards and cost
+   * record; a parts request its purchase allocations; a flight plan the
+   * flights logged against it. Other collections are empty. */
   records: HistoryRecords;
   /** The members the rows name ({@link namedMembers}), for their names. */
   members: Member[];
@@ -151,6 +201,13 @@ export function retentionCutoff(now: number, days: number): number {
  * - Job cards, archived job cards and work-order costs follow their work
  *   order; templates, cards of no loaded order, budgets and the labor rate
  *   stay.
+ * - Parts requests: recurring lists; open; changed within
+ *   {@link RETENTION_DAYS}; counted by a kept work order; or allocated to a
+ *   draft or issued purchase order. Their purchase allocations follow them.
+ * - Purchase orders: open (cores and repairs outstanding included), changed
+ *   within {@link RETENTION_DAYS}, or allocating a kept request.
+ * - Flight plans: departing within {@link FLIGHT_RETENTION_DAYS} or later,
+ *   created within {@link RETENTION_DAYS}, or flown by a kept flight.
  *
  * @param s - The full (scoped) snapshot.
  * @param now - The current time, in milliseconds.
@@ -159,17 +216,21 @@ export function retentionCutoff(now: number, days: number): number {
  *   lacks, as it was.
  */
 export function retainedSnapshot(s: Snapshot, now: number): Snapshot {
-  const { retained } = partition(s, now);
+  const { retained: r } = partition(s, now);
   return {
     ...s,
-    flights: retained.flights,
-    discrepancies: retained.discrepancies,
-    ...(s.workOrders && { workOrders: retained.workOrders }),
-    ...(s.taskCards && { taskCards: retained.taskCards }),
-    ...(s.archivedTaskCards && {
-      archivedTaskCards: retained.archivedTaskCards,
+    flights: r.flights,
+    discrepancies: r.discrepancies,
+    ...(s.workOrders && { workOrders: r.workOrders }),
+    ...(s.taskCards && { taskCards: r.taskCards }),
+    ...(s.archivedTaskCards && { archivedTaskCards: r.archivedTaskCards }),
+    ...(s.costs && { costs: r.costs }),
+    ...(s.flightPlans && { flightPlans: r.flightPlans }),
+    ...(s.partsRequests && { partsRequests: r.partsRequests }),
+    ...(s.purchaseOrders && { purchaseOrders: r.purchaseOrders }),
+    ...(s.partsRequestPurchases && {
+      partsRequestPurchases: r.partsRequestPurchases,
     }),
-    ...(s.costs && { costs: retained.costs }),
   };
 }
 
@@ -184,6 +245,11 @@ export function retainedSnapshot(s: Snapshot, now: number): Snapshot {
  * flights leave with those flights. An owner's or board member's view holds
  * no job cards or cost entries to judge by, and its whitelist strips the
  * fields the window reads, so it is judged before scoping.
+ *
+ * Purchase orders are judged on the program's orders, not the caller's: a
+ * non-administrator sees none, yet their requests' purchases and the parts
+ * on order derive from them, so the orders kept for the caller's requests
+ * stay until the last scoping turns them into those.
  *
  * @param full - The caller's program, unscoped: a whole-history load, or one
  *   holding every record the window keeps and all that decides it.
@@ -200,7 +266,27 @@ export function workspaceWindow(
   if (isOwnerView(full) || isBoardView(full))
     return scopedSnapshot(retainedSnapshot(full, now), today);
   const kept = retainedSnapshot(scopedSnapshot(full), now);
-  return scopedSnapshot(onlyKept(full, kept));
+  const requests = new Set((kept.partsRequests ?? []).map((r) => r.uuid));
+  const { closed } = windowCutoffs(now);
+  const purchaseOrders = full.purchaseOrders?.filter((p) =>
+    isKeptPurchaseOrder(p, requests, closed),
+  );
+  return scopedSnapshot(onlyKept(full, { ...kept, purchaseOrders }));
+}
+
+/**
+ * The window's cutoffs at a moment.
+ *
+ * @param now - The current time, in milliseconds.
+ * @returns The closed-history cutoff ({@link RETENTION_DAYS}) and the flight
+ *   cutoff ({@link FLIGHT_RETENTION_DAYS}), as {@link retentionCutoff}
+ *   rounds them.
+ */
+export function windowCutoffs(now: number): WindowCutoffs {
+  return {
+    closed: retentionCutoff(now, RETENTION_DAYS),
+    flights: retentionCutoff(now, FLIGHT_RETENTION_DAYS),
+  };
 }
 
 /**
@@ -223,10 +309,10 @@ export function historyPage(
   request: HistoryPageRequest,
   now: number,
 ): HistoryPage {
-  const { aircraftUuid } = request;
+  const aircraftUuid = "aircraftUuid" in request && request.aircraftUuid;
   if (aircraftUuid && !s.aircraft.some((a) => a.uuid === aircraftUuid))
     throw new Rejection(HISTORY_NOT_FOUND);
-  const page = pageRecords(partition(s, now).older, request);
+  const page = pageRecords(s, partition(s, now).older, request);
   return { ...page, members: namedMembers(s.members, page.records) };
 }
 
@@ -247,11 +333,15 @@ export function historyPageSize(numItems: number): number {
 /**
  * Where a row sits in its list. Lists run newest first: flights by start
  * instant (the `startedAt` column: the stored text keeps the pilot's offset
- * and does not sort by instant), reports by creation, work orders by
- * completion date ("" for a cancelled order without one, last); equal keys by
- * uuid, highest first. Each order is an index range per aircraft on the
- * server ([aircraftUuid, startedAt, uuid]; [aircraftUuid, status, createdAt,
- * uuid]; [aircraftUuid, status, completionDate, uuid]).
+ * and does not sort by instant), reports, parts requests and purchase orders
+ * by creation, work orders by completion date ("" for a cancelled order
+ * without one, last), flight plans by departure instant; equal keys by uuid,
+ * highest first. Each order is an index range on the server: per aircraft
+ * ([aircraftUuid, startedAt, uuid]; [aircraftUuid, status, createdAt, uuid];
+ * [aircraftUuid, status, completionDate, uuid]; [aircraftUuid, departedAt,
+ * uuid]), per program and aircraft for requests ([programUuid,
+ * aircraftUuid, createdAt, uuid]) and per program for orders
+ * ([programUuid, createdAt, uuid]).
  *
  * @param kind - The list.
  * @param row - One of its rows.
@@ -260,22 +350,15 @@ export function historyPageSize(numItems: number): number {
 export function historyPosition<K extends HistoryKind>(
   kind: K,
   row: HistoryRows[K],
-): HistoryPosition<K>;
-export function historyPosition(
-  kind: HistoryKind,
-  row: HistoryRows[HistoryKind],
-): HistoryPosition {
-  if (kind === "flights")
-    return [Date.parse((row as Flight).startTime), row.uuid];
-  if (kind === "discrepancies")
-    return [(row as Discrepancy).createdAt, row.uuid];
-  return [(row as WorkOrder).completionDate, row.uuid];
+): HistoryPosition<K> {
+  const key = POSITION_KEYS[kind] as (row: HistoryRows[K]) => HistoryKeys[K];
+  return [key(row), row.uuid];
 }
 
 /**
  * The position every row the window leaves out comes after: no flight
- * started, report created or work order completed on or after the cutoff's
- * day is older history.
+ * started, plan departing, report, request or order created, or work order
+ * completed on or after the cutoff's day is older history.
  *
  * @param kind - The list.
  * @param now - The current time, in milliseconds.
@@ -287,11 +370,10 @@ export function historyStart<K extends HistoryKind>(
   now: number,
 ): HistoryPosition<K>;
 export function historyStart(kind: HistoryKind, now: number): HistoryPosition {
-  if (kind === "flights")
-    return [retentionCutoff(now, FLIGHT_RETENTION_DAYS), ""];
-  const cutoff = retentionCutoff(now, RETENTION_DAYS);
-  if (kind === "discrepancies") return [cutoff, ""];
-  return [new Date(cutoff).toISOString().slice(0, 10), ""];
+  const { closed, flights } = windowCutoffs(now);
+  if (kind === "flights" || kind === "flightPlans") return [flights, ""];
+  if (kind !== "workOrders") return [closed, ""];
+  return [new Date(closed).toISOString().slice(0, 10), ""];
 }
 
 /**
@@ -337,13 +419,15 @@ export function compareWorkOrderList(a: WorkOrder, b: WorkOrder): number {
 
 /**
  * How many months of a list the workspace keeps, as a screen names them:
- * {@link FLIGHT_RETENTION_DAYS} reads as 6, {@link RETENTION_DAYS} as 3.
+ * {@link FLIGHT_RETENTION_DAYS} reads as 6 (flights, and the plans they
+ * fly), {@link RETENTION_DAYS} as 3.
  *
  * @param kind - The list.
  * @returns The window's days in whole months, rounded.
  */
 export function historyWindowMonths(kind: HistoryKind): number {
-  const days = kind === "flights" ? FLIGHT_RETENTION_DAYS : RETENTION_DAYS;
+  const flown = kind === "flights" || kind === "flightPlans";
+  const days = flown ? FLIGHT_RETENTION_DAYS : RETENTION_DAYS;
   return Math.round(days / DAYS_PER_MONTH);
 }
 
@@ -547,8 +631,45 @@ export function emptyHistoryRecords(): HistoryRecords {
     taskCards: [],
     archivedTaskCards: [],
     costs: [],
+    flightPlans: [],
+    partsRequests: [],
+    purchaseOrders: [],
+    partsRequestPurchases: [],
   };
 }
+
+/**
+ * Each job card's work order, archived cards included: what a request on a
+ * card counts toward (countsToward).
+ *
+ * @param records - The job cards and archived job cards.
+ * @returns Card uuid to work order uuid.
+ */
+export function cardWorkOrders(
+  records: Pick<HistoryRecords, "taskCards" | "archivedTaskCards">,
+): Map<string, string> {
+  return new Map(
+    [...records.taskCards, ...records.archivedTaskCards].map((c) => [
+      c.uuid,
+      c.workOrderUuid,
+    ]),
+  );
+}
+
+const POSITION_KEYS: {
+  [K in HistoryKind]: (row: HistoryRows[K]) => HistoryKeys[K];
+} = {
+  flights: (f) => Date.parse(f.startTime),
+  discrepancies: (d) => d.createdAt,
+  workOrders: (w) => w.completionDate,
+  partsRequests: (r) => r.createdAt,
+  purchaseOrders: (p) => p.createdAt,
+  flightPlans: planDepartedAt,
+};
+
+type Sides = {
+  [K in keyof HistoryRecords]: [HistoryRecords[K], HistoryRecords[K]];
+};
 
 // Every windowed record lands on exactly one side.
 function partition(s: Snapshot, now: number) {
@@ -562,8 +683,10 @@ function partition(s: Snapshot, now: number) {
   const loaded = new Set(all.workOrders.map((w) => w.uuid));
   const follows = (workOrderUuid: string) =>
     !loaded.has(workOrderUuid) || !older.has(workOrderUuid);
-  const sides = {
-    flights: split(all.flights, (f) => !isOlderFlight(f, now)),
+  const flights = split(all.flights, (f) => !isOlderFlight(f, now));
+  const keptOrders = new Set([...loaded].filter((w) => !older.has(w)));
+  const sides: Sides = {
+    flights,
     discrepancies: split(all.discrepancies, (d) => !isOlderReport(d, now)),
     workOrders: split(all.workOrders, (w) => !older.has(w.uuid)),
     taskCards: split(all.taskCards, (c) => follows(c.workOrderUuid)),
@@ -574,10 +697,49 @@ function partition(s: Snapshot, now: number) {
       all.costs,
       (c) => c.kind !== "workOrder" || follows(c.workOrderUuid),
     ),
+    ...purchasingSides(s, all, keptOrders, now),
+    flightPlans: split(all.flightPlans, (p) =>
+      isKeptPlan(p, flownPlans(flights[0]), windowCutoffs(now)),
+    ),
   };
   return { retained: pick(sides, 0), older: pick(sides, 1) };
 }
 
+// Requests first: the orders kept for them, and their allocations, follow.
+function purchasingSides(
+  s: Snapshot,
+  all: HistoryRecords,
+  keptOrders: ReadonlySet<string>,
+  now: number,
+): Pick<Sides, "partsRequests" | "purchaseOrders" | "partsRequestPurchases"> {
+  const { closed } = windowCutoffs(now);
+  const purchases = purchasesByRequest(all.partsRequestPurchases);
+  const cards = cardWorkOrders(all);
+  const requests = split(all.partsRequests, (r) =>
+    isKeptRequest(
+      s,
+      r,
+      {
+        purchases: purchases.get(r.uuid) ?? [],
+        countsTowardKeptWork: countsToward(r, keptOrders, cards),
+      },
+      closed,
+    ),
+  );
+  const kept = new Set(requests[0].map((r) => r.uuid));
+  return {
+    partsRequests: requests,
+    partsRequestPurchases: split(all.partsRequestPurchases, (a) =>
+      kept.has(a.requestUuid),
+    ),
+    purchaseOrders: split(all.purchaseOrders, (p) =>
+      isKeptPurchaseOrder(p, kept, closed),
+    ),
+  };
+}
+
+// A scoped snapshot carries its requests' allocations; a whole load derives
+// them from its orders, as scopedSnapshot would.
 function windowedRecords(s: Snapshot): HistoryRecords {
   return {
     flights: s.flights,
@@ -586,6 +748,11 @@ function windowedRecords(s: Snapshot): HistoryRecords {
     taskCards: s.taskCards ?? [],
     archivedTaskCards: s.archivedTaskCards ?? [],
     costs: s.costs ?? [],
+    flightPlans: s.flightPlans ?? [],
+    partsRequests: s.partsRequests ?? [],
+    purchaseOrders: s.purchaseOrders ?? [],
+    partsRequestPurchases:
+      s.partsRequestPurchases ?? requestPurchases(s.purchaseOrders ?? []),
   };
 }
 
@@ -593,20 +760,11 @@ function split<T>(rows: T[], keep: (row: T) => boolean): [T[], T[]] {
   return [rows.filter(keep), rows.filter((row) => !keep(row))];
 }
 
-function pick(
-  sides: {
-    [K in keyof HistoryRecords]: [HistoryRecords[K], HistoryRecords[K]];
-  },
-  side: 0 | 1,
-): HistoryRecords {
-  return {
-    flights: sides.flights[side],
-    discrepancies: sides.discrepancies[side],
-    workOrders: sides.workOrders[side],
-    taskCards: sides.taskCards[side],
-    archivedTaskCards: sides.archivedTaskCards[side],
-    costs: sides.costs[side],
-  };
+function pick(sides: Sides, side: 0 | 1): HistoryRecords {
+  const picked = emptyHistoryRecords();
+  for (const name of Object.keys(picked) as (keyof HistoryRecords)[])
+    Object.assign(picked, { [name]: sides[name][side] });
+  return picked;
 }
 
 // Each order's job cards, archived job cards and cost records, grouped once,
@@ -671,32 +829,105 @@ function onlyKept(full: Snapshot, kept: Snapshot): Snapshot {
     taskCards: ofKept(full.taskCards, kept.taskCards),
     archivedTaskCards: ofKept(full.archivedTaskCards, kept.archivedTaskCards),
     costs: ofKept(full.costs, kept.costs),
+    flightPlans: ofKept(full.flightPlans, kept.flightPlans),
+    partsRequests: ofKept(full.partsRequests, kept.partsRequests),
+    purchaseOrders: ofKept(full.purchaseOrders, kept.purchaseOrders),
   };
 }
 
-function pageRecords(older: HistoryRecords, request: HistoryPageRequest) {
-  if (request.kind === "flights") {
+function pageRecords(
+  s: Snapshot,
+  older: HistoryRecords,
+  request: HistoryPageRequest,
+) {
+  const { kind } = request;
+  if (kind === "flights") {
     const { status } = request;
     const flights = older.flights.filter((f) => !status || f.status === status);
-    const { rows, ...page } = pageOf("flights", flights, request);
-    return { ...page, records: { ...emptyHistoryRecords(), flights: rows } };
+    return listPage(kind, onAircraft(flights, request), request, (flights) => ({
+      flights,
+    }));
   }
-  if (request.kind === "discrepancies") {
-    const { rows, ...page } = pageOf(
-      "discrepancies",
-      older.discrepancies,
-      request,
+  if (kind === "partsRequests") return requestPage(s, older, request);
+  if (kind === "purchaseOrders") {
+    const { vendor } = request;
+    const orders = older.purchaseOrders.filter(
+      (p) => vendor === undefined || vendorKey(p.vendor) === vendorKey(vendor),
     );
-    return {
-      ...page,
-      records: { ...emptyHistoryRecords(), discrepancies: rows },
-    };
+    return listPage(kind, orders, request, (purchaseOrders) => ({
+      purchaseOrders,
+    }));
   }
-  const { rows, ...page } = pageOf("workOrders", older.workOrders, request);
-  return {
-    ...page,
-    records: { ...emptyHistoryRecords(), ...withDependents(older, rows) },
-  };
+  if (kind === "flightPlans")
+    return listPage(
+      kind,
+      onAircraft(older.flightPlans, request),
+      request,
+      (p) => withFlights(older, p),
+    );
+  if (kind === "discrepancies")
+    return listPage(
+      kind,
+      onAircraft(older.discrepancies, request),
+      request,
+      (d) => ({
+        discrepancies: d,
+      }),
+    );
+  return listPage(kind, onAircraft(older.workOrders, request), request, (w) =>
+    withDependents(older, w),
+  );
+}
+
+// One list's page of rows, with what follows the rows.
+function listPage<K extends HistoryKind>(
+  kind: K,
+  rows: HistoryRows[K][],
+  request: PageBase,
+  follow: (rows: HistoryRows[K][]) => Partial<HistoryRecords>,
+) {
+  const { rows: page, ...rest } = pageOf(kind, rows, request);
+  return { ...rest, records: { ...emptyHistoryRecords(), ...follow(page) } };
+}
+
+function onAircraft<T extends { aircraftUuid: string }>(
+  rows: T[],
+  { aircraftUuid }: AircraftPage,
+): T[] {
+  return rows.filter((r) => !aircraftUuid || r.aircraftUuid === aircraftUuid);
+}
+
+// A record's requests are those requestMatchesSource finds in the whole
+// snapshot, through recurring lists and work items as on the record's list.
+function requestPage(
+  s: Snapshot,
+  older: HistoryRecords,
+  request: Extract<HistoryPageRequest, { kind: "partsRequests" }>,
+) {
+  const { source } = request;
+  const requests = onAircraft(older.partsRequests, request).filter(
+    (r) => !source || requestMatchesSource(s, r, source),
+  );
+  return listPage("partsRequests", requests, request, (partsRequests) => {
+    const uuids = new Set(partsRequests.map((r) => r.uuid));
+    const partsRequestPurchases = older.partsRequestPurchases.filter((a) =>
+      uuids.has(a.requestUuid),
+    );
+    return { partsRequests, partsRequestPurchases };
+  });
+}
+
+// Each plan's flights, in the snapshot's order: a plan the window leaves out
+// was flown by no flight it keeps, so its flights are older too.
+function withFlights(
+  older: HistoryRecords,
+  flightPlans: FlightPlan[],
+): Partial<HistoryRecords> {
+  const uuids = new Set(flightPlans.map((p) => p.uuid));
+  const flights = older.flights.filter(
+    (f) => !!f.flightPlanUuid && uuids.has(f.flightPlanUuid),
+  );
+  return { flightPlans, flights };
 }
 
 function pageOf<K extends HistoryKind>(
@@ -706,9 +937,6 @@ function pageOf<K extends HistoryKind>(
 ) {
   const from = readHistoryCursor(kind, request.cursor);
   const listed = rows
-    .filter(
-      (r) => !request.aircraftUuid || r.aircraftUuid === request.aircraftUuid,
-    )
     .map((row): [HistoryRows[K], HistoryPosition] => [
       row,
       historyPosition(kind, row),

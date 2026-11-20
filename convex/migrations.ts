@@ -5,7 +5,7 @@
  * Layer: Server. Internal functions run by hand with `npx convex run`, and
  *   the reconcile by crons.ts; no public entry point and no change-log rows.
  * Dependencies: convex/values, convex/server, ./_generated, ./collections,
- *   ./recordNumbers, ./costLedger, ./fileColumns.
+ *   ./recordNumbers, ./costLedger, ./fileColumns, ./purchaseAllocations.
  *
  * The window's indexes (ADR-0013) find only rows that carry the columns, and
  * numbering reads only the number rows, so every deployment holding data
@@ -42,6 +42,7 @@ import {
   type StoredLedgerRow,
 } from "./costLedger";
 import { storedFileColumns } from "./fileColumns";
+import { syncPurchaseAllocations } from "./purchaseAllocations";
 
 const BACKFILL_TABLES = [
   "flights",
@@ -51,6 +52,7 @@ const BACKFILL_TABLES = [
   "costs",
   "partsRequests",
   "purchaseOrders",
+  "flightPlans",
   // After the cards, whose work order their evidence copies.
   "taskEvidence",
   "inventoryFiles",
@@ -95,8 +97,10 @@ const LOGGED_DIFFERENCES = 20;
 /**
  * Fills the derived columns on one page of a table's rows, where any is
  * missing or differs from what the row's record derives (for a file row,
- * its owner: the card's aircraft and work order, the item's program).
- * Writes only those columns, never the record, so no change-log row is due.
+ * its owner: the card's aircraft and work order, the item's program), and a
+ * purchase order's allocation rows where they differ from its lines.
+ * Writes only those columns and rows, never the record, so no change-log
+ * row is due.
  *
  * @param table - The table to fill.
  * @param cursor - The page to fill; null for the first.
@@ -115,12 +119,7 @@ export const fillHistoryColumns = internalMutation({
       .query(table)
       .paginate({ cursor, numItems: BACKFILL_PAGE });
     let filled = 0;
-    for (const row of page.page) {
-      const columns = await columnsOf(ctx, table, row);
-      if (holdsColumns(row, columns)) continue;
-      await ctx.db.patch(row._id, columns);
-      filled++;
-    }
+    for (const row of page.page) if (await fillRow(ctx, table, row)) filled++;
     const next = page.isDone ? null : page.continueCursor;
     return { filled, cursor: next } satisfies FilledPage;
   },
@@ -163,6 +162,21 @@ async function fillTable(ctx: ActionCtx, table: BackfillTable) {
     cursor = page.cursor;
   } while (cursor !== null);
   return filled;
+}
+
+// A row counts as filled once if its columns or, for an order, its
+// allocation rows had to change.
+async function fillRow(
+  ctx: MutationCtx,
+  table: BackfillTable,
+  row: Doc<BackfillTable>,
+): Promise<boolean> {
+  const columns = await columnsOf(ctx, table, row);
+  const stale = !holdsColumns(row, columns);
+  if (stale) await ctx.db.patch(row._id, columns);
+  if (table !== "purchaseOrders") return stale;
+  const order = recordOf(table, row as Doc<"purchaseOrders">);
+  return (await syncPurchaseAllocations(ctx, order)) || stale;
 }
 
 async function columnsOf(

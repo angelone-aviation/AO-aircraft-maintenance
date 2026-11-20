@@ -47,10 +47,6 @@ const INDEX_RANGE_BAR = 1000;
 // The parts requests and purchase orders each fleet-year adds.
 const PURCHASING_ROWS_PER_YEAR =
   VOLUME.aircraft * (VOLUME.partsRequests + VOLUME.purchaseOrders);
-// With the flight plans, what H5 keeps complete in the workspace.
-const COMPLETE_ROWS_PER_YEAR =
-  PURCHASING_ROWS_PER_YEAR +
-  (VOLUME.aircraft * VOLUME.flights) / VOLUME.flightPlanEvery;
 
 type Reads = { documents: number; bytes: number; indexRanges: number };
 type Handler<C> = (ctx: C, args: object) => Promise<unknown>;
@@ -70,19 +66,15 @@ it("matches the recorded reads", async () => {
   ).toMatchFileSnapshot("./__golden__/historyCost.json");
 });
 
-describe("the windowed workspace (S7)", () => {
+describe("the windowed workspace (S7, H5)", () => {
   it("reads the window's history the same at three years as at one", () =>
     expectFlat("snapshot.window"));
 
-  it.each(["owner", "board"])("the %s's snapshot reads the same", (role) =>
+  // Since H5's window, parts requests, purchase orders and flight plans are
+  // read by the window's indexes too, so no view grows with history at this
+  // volume (its ADs record no compliance and no component moves).
+  it.each(ROLES)("the %s's snapshot reads the same", (role) =>
     expectFlat(`snapshot.${role}`),
-  );
-
-  // H5 keeps parts requests, purchase orders and flight plans complete, so
-  // the workspace grows by those rows alone.
-  it.each(["admin", "pilot"])(
-    "the %s's snapshot grows by the collections H5 keeps complete alone",
-    (role) => expectGrowthOf(`snapshot.${role}`, COMPLETE_ROWS_PER_YEAR),
   );
 });
 

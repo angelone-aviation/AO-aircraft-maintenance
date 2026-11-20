@@ -4,8 +4,8 @@
  * Layer: Server. Pure: no Convex context, no I/O, and only type imports from
  *   convex, so the backup scripts can bundle it.
  * Dependencies: src/domain (model, componentTemplates, the stored-record
- *   schemas and number rules, retention), convex/server and ./_generated
- *   (types).
+ *   schemas and number rules, retention, purchasingWindow), convex/server
+ *   and ./_generated (types).
  *
  * Component templates and setups decode as written, without a schema: their
  * readers have always taken the stored JSON as it is, and parsing it would
@@ -43,6 +43,11 @@ import { costRecordSchema } from "../src/domain/costs";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { costEntryActivity, workOrderActivity } from "../src/domain/retention";
 import { flightPlanSchema } from "../src/domain/flightPlans";
+import {
+  planDepartedAt,
+  purchaseOrderSettledAt,
+  requestSettledAt,
+} from "../src/domain/purchasingWindow";
 import { expiringItemSchema } from "../src/domain/expiringItems";
 
 /** A Snapshot collection stored as one JSON payload per row. */
@@ -157,8 +162,14 @@ export function encode<N extends PayloadCollection>(
  * - Costs: `kind`, and a work order's record its `workOrderUuid` and
  *   `changedAt`, its latest labor or other entry (0 for none).
  * - Parts requests: the source's `workOrderUuid` and `uuid` as
- *   `sourceWorkOrderUuid` and `sourceUuid`, and `numberValue`.
- * - Purchase orders: `numberValue`.
+ *   `sourceWorkOrderUuid` and `sourceUuid`, `numberValue`, `aircraftUuid`
+ *   ("" for stock), `createdAt`, and `settledAt`: its latest event once its
+ *   own fields show it closed, absent while it may be open
+ *   (requestSettledAt).
+ * - Purchase orders: `numberValue`, `createdAt`, and `settledAt`, absent
+ *   while the order is open (purchaseOrderSettledAt).
+ * - Flight plans: `departedAt`, the departure in milliseconds, and
+ *   `createdAt`.
  *
  * `numberKey` and `numberValue` are the number as the domain's uniqueness
  * check and next-number rule read it.
@@ -360,8 +371,19 @@ const DERIVED: {
     sourceWorkOrderUuid: r.source.workOrderUuid,
     sourceUuid: r.source.uuid,
     numberValue: requestNumberValue(r.number),
+    aircraftUuid: r.aircraftUuid,
+    createdAt: r.createdAt,
+    settledAt: requestSettledAt(r),
   }),
-  purchaseOrders: (r) => ({ numberValue: poNumberValue(r.number) }),
+  purchaseOrders: (r) => ({
+    numberValue: poNumberValue(r.number),
+    createdAt: r.createdAt,
+    settledAt: purchaseOrderSettledAt(r),
+  }),
+  flightPlans: (r) => ({
+    departedAt: planDepartedAt(r),
+    createdAt: r.createdAt,
+  }),
 };
 
 // Dated as the retention window dates a closing (src/domain/retention.ts).

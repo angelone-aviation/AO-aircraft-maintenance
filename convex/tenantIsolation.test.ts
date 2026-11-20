@@ -182,6 +182,8 @@ const HISTORY_LISTS = [
   api.history.flights,
   api.history.discrepancies,
   api.history.workOrders,
+  api.history.partsRequests,
+  api.history.flightPlans,
 ];
 const EMPTY_HISTORY_PAGE = {
   records: {
@@ -191,6 +193,10 @@ const EMPTY_HISTORY_PAGE = {
     taskCards: [],
     archivedTaskCards: [],
     costs: [],
+    flightPlans: [],
+    partsRequests: [],
+    purchaseOrders: [],
+    partsRequestPurchases: [],
   },
   members: [],
   isDone: true,
@@ -560,21 +566,35 @@ const CASES: Case[] = [
       stampB({ cursor: null, numItems: 50 }),
     ).returns(EMPTY_HISTORY_PAGE),
   ]),
+  callQuery(api.history.purchaseOrders, "its own older orders", () =>
+    stampB({ cursor: null, numItems: 50 }),
+  ).returns(EMPTY_HISTORY_PAGE),
+  callQuery(api.history.purchaseOrders, "older orders in program A", () =>
+    stampA({ cursor: null, numItems: 50 }),
+  ).refuses(STALE_PROGRAM),
   callQuery(api.history.workOrder, "A's work order", (a) =>
     stampB({ uuid: a.row.workOrders.uuid }),
   ).refuses(HISTORY_NOT_FOUND),
-  callQuery(api.history.records, "A's report, job card and plan", (a) =>
-    stampB({
-      discrepancyUuids: [a.row.discrepancies.uuid],
-      taskCardUuids: [a.row.taskCards.uuid],
-      flightPlanUuids: [a.row.flightPlans.uuid],
-    }),
+  callQuery(
+    api.history.records,
+    "A's report, job card, plan, request and order",
+    (a) =>
+      stampB({
+        discrepancyUuids: [a.row.discrepancies.uuid],
+        taskCardUuids: [a.row.taskCards.uuid],
+        flightPlanUuids: [a.row.flightPlans.uuid],
+        partsRequestUuids: [a.row.partsRequests.uuid],
+        purchaseOrderUuids: [a.row.purchaseOrders.uuid],
+      }),
   ).returns({
     discrepancies: [],
     taskCards: [],
     archivedTaskCards: [],
     flights: [],
     members: [],
+    partsRequests: [],
+    purchaseOrders: [],
+    partsRequestPurchases: [],
   }),
   callQuery(api.history.records, "A's report in program A", (a) =>
     stampA({

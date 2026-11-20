@@ -54,7 +54,11 @@ describe("workOrderHistory", () => {
       evidence("elsewhere", "other-card"),
     ],
     workOrderAttachments: [attachment("file", order.uuid)],
-    partsRequests: [request("raised", order.uuid), request("stock", "")],
+    partsRequests: [
+      request("raised", order.uuid),
+      request("on-card", ""),
+      request("on-other-card", "", "other-card"),
+    ],
   });
 
   it("holds the order and only what is filed on it", () => {
@@ -67,7 +71,8 @@ describe("workOrderHistory", () => {
       ["on-card", "on-archived"].map(id),
     );
     expect(uuids(history.workOrderAttachments)).toEqual([id("file")]);
-    expect(uuids(history.partsRequests)).toEqual([id("raised")]);
+    expect(uuids(history.partsRequests)).toEqual(["raised", "on-card"].map(id));
+    expect(history.partsRequestPurchases).toEqual([]);
   });
 
   it("refuses an order the snapshot does not hold, as one that does not exist", () => {
@@ -170,6 +175,9 @@ describe("lookupRecords", () => {
       archivedTaskCards: [],
       flights: [],
       members: [],
+      partsRequests: [],
+      purchaseOrders: [],
+      partsRequestPurchases: [],
     });
   });
 
@@ -319,7 +327,8 @@ function attachment(name: string, workOrderUuid: string) {
   };
 }
 
-function request(name: string, workOrderUuid: string) {
+// Raised on a job card, and on its work order when one is given.
+function request(name: string, workOrderUuid: string, card = "card") {
   return partsRequestSchema.parse({
     uuid: id(name),
     version: 1,
@@ -342,7 +351,7 @@ function request(name: string, workOrderUuid: string) {
     returnInstructions: "",
     programUuid: "demo-program",
     cancelled: false,
-    source: { kind: "jobCard", uuid: id("card"), workOrderUuid },
+    source: { kind: "jobCard", uuid: id(card), workOrderUuid },
     lines: [
       {
         uuid: id(`${name}-line`),

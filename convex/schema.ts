@@ -522,9 +522,17 @@ export default defineSchema({
     uuid: v.string(),
     aircraftUuid: v.string(),
     payload: v.string(),
+    // Derived: departureAt in milliseconds (the text keeps the filer's
+    // offset), and the plan's createdAt.
+    departedAt: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
-    .index("aircraft", ["aircraftUuid"]),
+    .index("aircraft", ["aircraftUuid"])
+    // History pages and the window's plans still to fly read this range;
+    // the uuid orders ties as src/domain/retention.ts does.
+    .index("departed", ["aircraftUuid", "departedAt", "uuid"])
+    .index("created", ["aircraftUuid", "createdAt"]),
   flights: defineTable({
     ...flightFields,
     uuid: v.string(),
@@ -601,22 +609,40 @@ export default defineSchema({
     sourceWorkOrderUuid: v.optional(v.string()),
     sourceUuid: v.optional(v.string()),
     numberValue: v.optional(v.number()),
+    // Derived for the window (H5): the request's aircraft ("" for stock),
+    // its createdAt, and settledAt, absent while it may be open
+    // (src/domain/purchasingWindow.ts).
+    aircraftUuid: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    settledAt: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
     .index("program", ["programUuid"])
     .index("sourceWorkOrder", ["sourceWorkOrderUuid"])
     .index("source", ["sourceUuid"])
-    .index("number", ["programUuid", "numberValue"]),
+    .index("number", ["programUuid", "numberValue"])
+    // History pages read this range; the uuid orders ties as
+    // src/domain/retention.ts does.
+    .index("created", ["programUuid", "aircraftUuid", "createdAt", "uuid"])
+    .index("settled", ["programUuid", "aircraftUuid", "settledAt"]),
   purchaseOrders: defineTable({
     uuid: v.string(),
     programUuid: v.string(),
     payload: v.string(),
     // Derived.
     numberValue: v.optional(v.number()),
+    // Derived for the window (H5): createdAt, and settledAt, absent while
+    // the order is open (src/domain/purchasingWindow.ts).
+    createdAt: v.optional(v.number()),
+    settledAt: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
     .index("program", ["programUuid"])
-    .index("number", ["programUuid", "numberValue"]),
+    .index("number", ["programUuid", "numberValue"])
+    // History pages read this range; the uuid orders ties as
+    // src/domain/retention.ts does.
+    .index("created", ["programUuid", "createdAt", "uuid"])
+    .index("settled", ["programUuid", "settledAt"]),
   poFiles: defineTable({
     poUuid: v.string(),
     programUuid: v.string(),
@@ -701,6 +727,17 @@ export default defineSchema({
   })
     .index("program", ["programUuid", "aircraftUuid", "date"])
     .index("workOrder", ["workOrderUuid"]),
+  // Derived, not records: one row for each parts request a purchase order's
+  // lines allocate, so a request's orders are found without reading every
+  // order (H5). Written with the order (convex/purchaseAllocations.ts) and
+  // filled by migrations:backfillHistoryColumns.
+  purchaseAllocations: defineTable({
+    programUuid: v.string(),
+    poUuid: v.string(),
+    requestUuid: v.string(),
+  })
+    .index("request", ["requestUuid"])
+    .index("order", ["poUuid"]),
   // Retired: nothing reads or writes it since commandRequests replaced it. It
   // stays declared only because Convex refuses a deploy whose schema drops a
   // table that still holds rows; a later batch drops it once it is empty.

@@ -4,13 +4,15 @@
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/operations.ts, convex/schema.ts,
  *   tests/fixtures/programVolume.ts, tests/fixtures/storedCollections.ts,
- *   src/data/demo.ts, src/domain/model.ts (types).
+ *   src/data/demo.ts, src/domain/model.ts (types), src/domain/retention.ts.
  *
  * convex-test enforces none of Convex's per-function limits (16 MiB read, the
  * index-range count, one second), so reads are counted here through a proxy
  * over ctx.db: lookups (each query or get), documents, and their JSON size,
  * which tracks the byte count Convex limits. The output goldens were recorded
- * before the snapshot was made cheaper.
+ * before the snapshot was made cheaper, and again when H5's window (20 Nov
+ * 2026) took closed purchasing and older flight plans out of the workspace,
+ * a change of what it holds by decision, not a cheaper read.
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -29,6 +31,7 @@ import {
   seedStoredCollections,
 } from "../tests/fixtures/storedCollections";
 import type { Snapshot } from "../src/domain/model";
+import { RETENTION_DAYS, retentionCutoff } from "../src/domain/retention";
 import { demoSnapshot } from "../src/data/demo";
 
 const modules = import.meta.glob([
@@ -44,6 +47,9 @@ const ROLES = ["admin", "pilot", "owner", "board"] as const;
 // A kept work order's job cards, archived job cards, costs, files and the
 // evidence on its cards.
 const LOOKUPS_PER_ORDER = 5;
+// A request kept from before the window: its allocation rows and the orders
+// they name, read so its progress is whole (convex/windowedPurchasing.ts).
+const LOOKUPS_PER_OLDER_REQUEST = 3;
 // Seeding about ten thousand rows takes a while on a shared machine.
 const VOLUME_TIMEOUT_MS = 120_000;
 // Tables the owner and board whitelists never pass, so never worth reading.
@@ -144,13 +150,17 @@ describe("the workspace snapshot at one year of records", () => {
 
   // A kept work order's files and its cards' evidence are looked up by the
   // order (convex/fileColumns.ts), never once per job card.
-  it("keeps the pilot's lookups to a few per aircraft and table, and per kept work order", async () => {
+  it("keeps the pilot's lookups to a few per aircraft and table, per kept work order and per older kept request", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: SEEDED_AT });
     const s = (await t
       .withIdentity({ subject: accounts.pilot })
       .query(api.operations.snapshot, {}))!;
+    const cutoff = retentionCutoff(SEEDED_AT, RETENTION_DAYS);
+    const older = (s.partsRequests ?? []).filter((r) => r.createdAt < cutoff);
     expect(reads.pilot.lookups).toBeLessThan(
-      VOLUME.aircraft * 30 + LOOKUPS_PER_ORDER * s.workOrders!.length,
+      VOLUME.aircraft * 30 +
+        LOOKUPS_PER_ORDER * s.workOrders!.length +
+        LOOKUPS_PER_OLDER_REQUEST * older.length,
     );
   });
 });

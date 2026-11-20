@@ -10,6 +10,7 @@ import type { TestConvex } from "convex-test";
 import type schema from "../../convex/schema";
 import { api } from "../../convex/_generated/api";
 import {
+  emptyHistoryRecords,
   historyPage,
   type HistoryKind,
   type HistoryPage,
@@ -17,6 +18,7 @@ import {
   type HistoryRecords,
 } from "../../src/domain/retention";
 import type { Flight, Snapshot } from "../../src/domain/model";
+import type { RequestSource } from "../../src/domain/partsRequests";
 
 /** Pages a test follows before it fails as never finishing. */
 const MAX_PAGES = 500;
@@ -30,6 +32,8 @@ export interface PageArgs {
   kind?: HistoryKind;
   aircraftUuid?: string;
   status?: Flight["status"];
+  source?: RequestSource;
+  vendor?: string;
   cursor?: string | null;
   numItems?: number;
 }
@@ -45,12 +49,16 @@ export function queryHistoryPage(
   args: PageArgs,
 ): Promise<HistoryPage> {
   const request = { cursor: null, numItems: 50, ...args };
-  const { kind: _kind, status, ...list } = request;
+  const { kind: _kind, status, source, vendor, ...list } = request;
   if (kind === "flights")
     return client.query(api.history.flights, { ...list, status });
-  if (kind === "discrepancies")
-    return client.query(api.history.discrepancies, list);
-  return client.query(api.history.workOrders, list);
+  if (kind === "partsRequests")
+    return client.query(api.history.partsRequests, { ...list, source });
+  if (kind === "purchaseOrders") {
+    const { aircraftUuid: _aircraft, ...orders } = list;
+    return client.query(api.history.purchaseOrders, { ...orders, vendor });
+  }
+  return client.query(api.history[kind], list);
 }
 
 /**
@@ -83,12 +91,8 @@ export async function expectOraclePages(
 }
 
 function mergeRecords(pages: HistoryRecords[]): HistoryRecords {
-  return {
-    flights: pages.flatMap((p) => p.flights),
-    discrepancies: pages.flatMap((p) => p.discrepancies),
-    workOrders: pages.flatMap((p) => p.workOrders),
-    taskCards: pages.flatMap((p) => p.taskCards),
-    archivedTaskCards: pages.flatMap((p) => p.archivedTaskCards),
-    costs: pages.flatMap((p) => p.costs),
-  };
+  const merged = emptyHistoryRecords();
+  for (const key of Object.keys(merged) as (keyof HistoryRecords)[])
+    Object.assign(merged, { [key]: pages.flatMap((p): unknown[] => p[key]) });
+  return merged;
 }

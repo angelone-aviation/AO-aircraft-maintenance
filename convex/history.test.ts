@@ -1,12 +1,13 @@
 /**
  * Responsibility: Pins the paged history queries: who may page what, cursors
  *   across ties and page boundaries, and that each page equals historyPage
- *   on the caller's own scoped snapshot.
+ *   on the caller's own scoped snapshot, purchasing and flight plans
+ *   included.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex (history, schema, collections, memberships,
- *   _generated), tests/fixtures (derivedColumns, legacySnapshot),
- *   src/data/demo.ts, src/domain (retention, historyReads, programs, record
- *   schemas).
+ *   purchaseAllocations, _generated), tests/fixtures (derivedColumns,
+ *   legacySnapshot, historyPages, purchasingEdges), src/data/demo.ts,
+ *   src/domain (retention, historyReads, programs, record schemas).
  *
  * Within a tie the rows are inserted out of uuid order, so a server that
  * left ties in creation order would fail.
@@ -21,6 +22,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { encode, flightColumns } from "./collections";
 import { syncMemberships } from "./memberships";
+import { syncPurchaseAllocations } from "./purchaseAllocations";
+import { edgeLabel, edgeRecords } from "../tests/fixtures/purchasingEdges";
 import { forgetDerivedColumns } from "../tests/fixtures/derivedColumns";
 import { legacySnapshot } from "../tests/fixtures/legacySnapshot";
 import {
@@ -66,7 +69,16 @@ const P = "program-p";
 const Q = "program-q";
 const [P1, P2, P3] = ["p-aircraft-1", "p-aircraft-2", "p-aircraft-3"];
 const Q1 = "q-aircraft-1";
-const KINDS = ["flights", "discrepancies", "workOrders"] as const;
+const KINDS = [
+  "flights",
+  "discrepancies",
+  "workOrders",
+  "partsRequests",
+  "purchaseOrders",
+  "flightPlans",
+] as const;
+// The lists an aircraft narrows; purchase orders belong to none.
+const AIRCRAFT_KINDS = KINDS.filter((kind) => kind !== "purchaseOrders");
 const SIZES = [1, 2, 3, 7];
 const MAX_PAGES = 200;
 const NOT_FOUND = "History not found.";
@@ -111,7 +123,7 @@ describe("who may page history", () => {
   });
 
   it("refuses an aircraft the caller may not read exactly as one that does not exist", async () => {
-    for (const kind of KINDS) {
+    for (const kind of AIRCRAFT_KINDS) {
       const theirs = await settle(
         page(as("pilot"), kind, { aircraftUuid: P2 }),
       );
@@ -214,6 +226,48 @@ describe("pages equal historyPage on the caller's scoped snapshot", () => {
           );
     },
   );
+
+  it("narrows requests to a record's list and orders to a vendor as the oracle does", async () => {
+    const s = await snapshotOf("admin");
+    const repair = (s.partsRequests ?? []).find(
+      (r) => edgeLabel(r.number) === "REPAIR" && r.aircraftUuid === P2,
+    )!;
+    const first = { programUuid: P, cursor: null, numItems: 2 };
+    const listed = await expectOraclePages(
+      as("admin"),
+      s,
+      { ...first, kind: "partsRequests", source: repair.source },
+      NOW,
+    );
+    expect(listed.partsRequests.map((r) => r.uuid)).toEqual([repair.uuid]);
+    for (const vendor of ["example aviation supply", "Nobody"])
+      await expectOraclePages(
+        as("admin"),
+        s,
+        { ...first, kind: "purchaseOrders", vendor },
+        NOW,
+      );
+  });
+
+  it("brings each older request's purchases and each older plan's flights", async () => {
+    const requests = await page(as("mechanic"), "partsRequests", {
+      numItems: 100,
+    });
+    const repairs = requests.records.partsRequests.filter(
+      (r) => edgeLabel(r.number) === "REPAIR",
+    );
+    expect(repairs.map((r) => r.aircraftUuid).sort()).toEqual([P1, P2, P3]);
+    const received = new Map(
+      requests.records.partsRequestPurchases.map((a) => [
+        a.requestUuid,
+        a.received,
+      ]),
+    );
+    for (const r of repairs) expect(received.get(r.uuid)).toBe(1);
+    expect(requests.records.purchaseOrders).toEqual([]);
+    const plans = await page(as("pilot"), "flightPlans", { numItems: 100 });
+    expect(plans.records.flightPlans.map((p) => p.aircraftUuid)).toEqual([P1]);
+  });
 
   it("filters flights by aircraft and outcome as the oracle does", async () => {
     const s = await snapshotOf("admin");
@@ -324,6 +378,22 @@ describe("history.workOrder", () => {
       expect(history.archivedTaskCards).toHaveLength(1);
     },
   );
+
+  it.each(["admin", "mechanic"] as const)(
+    "counts a request on one of its job cards, with its purchases, for a %s",
+    async (role) => {
+      const s = await snapshotOf(role);
+      const open = (s.workOrders ?? []).find(
+        (w) => w.aircraftUuid === P2 && w.status === "in-progress",
+      )!;
+      const history = await order(as(role), open.uuid);
+      expect(history).toEqual(workOrderHistory(s, open.uuid));
+      expect(history.partsRequests.map((r) => edgeLabel(r.number))).toEqual([
+        "TASK",
+        "CARD",
+      ]);
+    },
+  );
 });
 
 describe("history.flightsInRange", () => {
@@ -377,10 +447,20 @@ describe("history.records", () => {
           ...(await ctx.db.query("archivedTaskCards").collect()),
         ].map((c) => c.uuid),
       }));
+      const purchasing = await t.run(async (ctx) => ({
+        requests: (await ctx.db.query("partsRequests").collect()).map(
+          (r) => r.uuid,
+        ),
+        orders: (await ctx.db.query("purchaseOrders").collect()).map(
+          (p) => p.uuid,
+        ),
+      }));
       const lookup = {
-        discrepancyUuids: [...named.reports.slice(0, 40), "no-such-report"],
-        taskCardUuids: named.cards.slice(0, 50),
+        discrepancyUuids: [...named.reports.slice(0, 20), "no-such-report"],
+        taskCardUuids: named.cards.slice(0, 30),
         flightPlanUuids: [plan],
+        partsRequestUuids: purchasing.requests.slice(0, 30),
+        purchaseOrderUuids: purchasing.orders.slice(0, 15),
       };
       const found = await lookupFrom(as(role), lookup);
       const oracle = lookupRecords(await snapshotOf(role), lookup);
@@ -395,6 +475,9 @@ describe("history.records", () => {
       );
       expect(found.flights.length).toBeGreaterThan(0);
       expect(found.discrepancies.length).toBeGreaterThan(0);
+      expect(found.partsRequests.length).toBeGreaterThan(0);
+      expect(found.partsRequestPurchases.length).toBeGreaterThan(0);
+      expect(found.purchaseOrders.length > 0).toBe(role === "admin");
       const aircraft = new Set(
         [...found.discrepancies, ...found.flights].map((r) => r.aircraftUuid),
       );
@@ -418,20 +501,26 @@ describe("history.records", () => {
 });
 
 describe("rows stored before the derived columns", () => {
-  it("refuses to page flights or work orders until the backfill fills them", async () => {
+  it("refuses to page a list until the backfill fills its columns", async () => {
     const local = convexTest(schema, modules);
     const seeded = await local.run(seedWorld);
     const client = local.withIdentity({ subject: seeded.subjects.admin });
-    const rows = await local.run(async (ctx) => ({
-      flight: (await ctx.db.query("flights").first())!.uuid,
-      order: (await ctx.db.query("workOrders").first())!.uuid,
-    }));
-    await forgetDerivedColumns(local, "flights", [rows.flight]);
-    await forgetDerivedColumns(local, "workOrders", [rows.order]);
-    for (const kind of ["flights", "workOrders"] as const)
-      expect(await settle(page(client, kind, {}))).toEqual({
-        refused: `History columns are missing on ${kind}; run migrations:backfillHistoryColumns.`,
+    const tables = [
+      "flights",
+      "workOrders",
+      "partsRequests",
+      "purchaseOrders",
+      "flightPlans",
+    ] as const;
+    for (const table of tables) {
+      const first = await local.run(
+        async (ctx) => (await ctx.db.query(table).collect())[0],
+      );
+      await forgetDerivedColumns(local, table, [first!.uuid]);
+      expect(await settle(page(client, table, {})), table).toEqual({
+        refused: `History columns are missing on ${table}; run migrations:backfillHistoryColumns.`,
       });
+    }
   });
 });
 
@@ -485,7 +574,9 @@ async function allKinds(
   args: { programUuid?: string },
 ): Promise<HistoryPage[]> {
   return Promise.all(
-    KINDS.map((kind) => page(client, kind, { ...args, numItems: 100 })),
+    AIRCRAFT_KINDS.map((kind) =>
+      page(client, kind, { ...args, numItems: 100 }),
+    ),
   );
 }
 
@@ -493,14 +584,17 @@ async function allWorkOrders(client: Client): Promise<HistoryPage> {
   return page(client, "workOrders", { numItems: 100 });
 }
 
+// Requests for stock name no aircraft, so they are left out here.
 function aircraftOf(pages: HistoryPage[]): string[] {
   const rows = pages.flatMap((p) => [
     ...p.records.flights,
     ...p.records.discrepancies,
     ...p.records.workOrders,
+    ...p.records.partsRequests,
+    ...p.records.flightPlans,
   ]);
   expect(rows.length).toBeGreaterThan(0);
-  return [...new Set(rows.map((r) => r.aircraftUuid))].sort();
+  return [...new Set(rows.flatMap((r) => r.aircraftUuid || []))].sort();
 }
 
 // The caller's scoped whole history, the oracle's input: the workspace
@@ -564,7 +658,54 @@ async function seedWorld(ctx: MutationCtx): Promise<World> {
   for (const aircraftUuid of [P1, P2, P3, Q1])
     await seedAircraftRecords(ctx, aircraftUuid, people.ids, nextUuid);
   const filedOrder = await seedFiledOrder(ctx, people.ids.admin, nextUuid);
+  for (const aircraftUuid of [P1, P2, P3, Q1])
+    await seedPurchasing(ctx, aircraftUuid, people.ids, nextUuid);
   return { subjects: people.subjects, filedOrder, oldStart: OLD };
+}
+
+// One edge of each purchasing rule per aircraft (tests/fixtures/
+// purchasingEdges.ts), counted toward its open work order, with the
+// allocation rows the app writes beside each order; P1 also has a request
+// for stock.
+async function seedPurchasing(
+  ctx: MutationCtx,
+  aircraftUuid: string,
+  ids: People,
+  nextUuid: () => string,
+) {
+  const open = (await ctx.db
+    .query("workOrders")
+    .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
+    .collect())!.find((w) => w.status === "in-progress")!;
+  const card = (await ctx.db
+    .query("taskCards")
+    .withIndex("workOrder", (q) => q.eq("workOrderUuid", open.uuid))
+    .first())!;
+  const edges = edgeRecords(
+    {
+      end: NOW,
+      program: aircraftUuid === Q1 ? Q : P,
+      admin: ids.admin,
+      pilot: ids.pilot,
+      aircraft: { ...aircraftRow(aircraftUuid), model: "206" },
+      order: { uuid: open.uuid, card: card.uuid },
+      component: nextUuid(),
+      inspection: nextUuid(),
+      stock: { uuid: nextUuid(), locationUuid: nextUuid(), partNumber: "F-1" },
+      stockRequest: aircraftUuid === P1,
+    },
+    nextUuid,
+  );
+  for (const r of edges.partsRequests)
+    await ctx.db.insert("partsRequests", encode("partsRequests", r));
+  for (const p of edges.purchaseOrders) {
+    await ctx.db.insert("purchaseOrders", encode("purchaseOrders", p));
+    await syncPurchaseAllocations(ctx, p);
+  }
+  for (const p of edges.flightPlans)
+    await ctx.db.insert("flightPlans", encode("flightPlans", p));
+  for (const f of edges.flights)
+    await ctx.db.insert("flights", { ...f, ...flightColumns(f) });
 }
 
 function aircraftRow(uuid: string) {

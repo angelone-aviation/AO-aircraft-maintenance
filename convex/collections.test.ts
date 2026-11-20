@@ -39,6 +39,7 @@ import { workOrderSchema } from "../src/domain/workOrders";
 import { adSchema } from "../src/domain/airworthiness";
 import { partsRequestSchema } from "../src/domain/partsRequests";
 import { poSchema } from "../src/domain/purchaseOrders";
+import { flightPlanSchema } from "../src/domain/flightPlans";
 import { checklistRecordSchema } from "../src/domain/checklists";
 import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
 import { costRecordSchema } from "../src/domain/costs";
@@ -342,10 +343,13 @@ it("derives the history window's columns from each record", async () => {
   ]);
 
   const source = { ...request.source, workOrderUuid: "order", uuid: "task" };
-  expect(derivedColumns("partsRequests", { ...request, source })).toEqual({
+  const open = { ...request, source, cancelled: false, issues: [] };
+  expect(derivedColumns("partsRequests", open)).toEqual({
     sourceWorkOrderUuid: "order",
     sourceUuid: "task",
     numberValue: 1,
+    aircraftUuid: request.aircraftUuid,
+    createdAt: request.createdAt,
   });
   const NUMBERS = ["PR-00042", "PO-00042", "SAMPLE-1"];
   // Characterizes current behaviour: a request number is read after the
@@ -363,6 +367,102 @@ it("derives the history window's columns from each record", async () => {
     ),
   ).toEqual([0, 42, 0]);
   expect(derivedColumns("management", stored.vendor)).toEqual({});
+});
+
+// settledAt is absent while a record may be open, so the window reads it
+// whatever its age; once settled it is the record's latest event.
+it("derives the purchasing window's columns (H5)", async () => {
+  const { t } = await fixture();
+  const { request, po } = await t.run(async (ctx) => ({
+    request: decode(
+      "partsRequests",
+      await ctx.db.query("partsRequests").collect(),
+    )[0],
+    po: decode(
+      "purchaseOrders",
+      await ctx.db.query("purchaseOrders").collect(),
+    )[0],
+  }));
+  const settled = (r: Partial<typeof request>) =>
+    derivedColumns("partsRequests", { ...request, ...r }).settledAt;
+  const line = request.lines[0];
+  const issue = { lineUuid: line.uuid, stockUuid: "s", actorId: "a" };
+  const issued = [
+    { ...issue, quantity: line.quantity, at: request.createdAt + 7 },
+  ];
+  expect(settled({ cancelled: false, issues: [] })).toBeUndefined();
+  expect(settled({ cancelled: false, issues: issued })).toBe(
+    request.createdAt + 7,
+  );
+  expect(settled({ cancelled: true, issues: [], updatedAt: 99 })).toBe(
+    Math.max(request.createdAt, 99),
+  );
+  expect(settled({ recurring: true, cancelled: true })).toBeUndefined();
+  // A repair is fulfilled by its order's receipt, which its row cannot show.
+  expect(
+    settled({ mode: "repair", issues: issued, cancelled: false }),
+  ).toBeUndefined();
+
+  const order = (p: Partial<typeof po>) =>
+    derivedColumns("purchaseOrders", { ...po, ...p });
+  const at = po.createdAt + 5;
+  expect(order({ phase: "issued" })).toEqual({
+    numberValue: order({}).numberValue,
+    createdAt: po.createdAt,
+  });
+  expect(order({ phase: "closed", updatedAt: at }).settledAt).toBe(at);
+  const core = {
+    uuid: "c",
+    lineUuid: po.lines[0].uuid,
+    receiptUuid: "r",
+    partNumber: "P",
+    serial: "S",
+    quantity: 1,
+    dueDate: "2026-01-01",
+    tracking: "",
+    notes: "",
+  };
+  for (const status of ["pending", "shipped"] as const)
+    expect(
+      order({ phase: "closed", coreReturns: [{ ...core, status }] }).settledAt,
+    ).toBeUndefined();
+  expect(
+    order({ phase: "closed", coreReturns: [{ ...core, status: "credited" }] })
+      .settledAt,
+  ).toBeDefined();
+});
+
+it("derives a flight plan's departure as an instant, across offsets", () => {
+  const plan = flightPlanSchema.parse({
+    uuid: "11111111-1111-4111-8111-111111111111",
+    version: 1,
+    aircraftUuid: "a",
+    registration: "N1",
+    departureAt: "2026-10-03T21:30:00-05:00",
+    origin: "KCHA",
+    destination: "KAVL",
+    alternate: "",
+    durationMinutes: 60,
+    cycles: 1,
+    landings: 1,
+    flightRules: "V",
+    aircraftType: "C206",
+    flightType: "G",
+    speed: "N0140",
+    level: "A080",
+    route: "DCT",
+    pilotText: "",
+    equipment: "",
+    otherInformation: "",
+    sourceName: "",
+    sourceHash: "a".repeat(64),
+    status: "proposed",
+    createdAt: 7,
+  });
+  expect(derivedColumns("flightPlans", plan)).toEqual({
+    departedAt: Date.UTC(2026, 9, 4, 2, 30),
+    createdAt: 7,
+  });
 });
 
 it("derives a flight's start as an instant, which decodeFlight drops again", () => {
