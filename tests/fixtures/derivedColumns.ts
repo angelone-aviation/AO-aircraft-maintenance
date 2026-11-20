@@ -1,10 +1,10 @@
 /**
  * Responsibility: Checks that rows a write path stored carry the derived
- *   columns and number rows their records derive (ADR-0013), and strips the
- *   columns to stand for rows written before they existed.
+ *   columns, number rows and lookup keys their records derive (ADR-0013),
+ *   and strips the columns to stand for rows written before they existed.
  * Layer: Test. Fixture over convex-test; never shipped in the build.
  * Dependencies: vitest, convex-test, convex/schema, convex/collections,
- *   convex/recordNumbers.
+ *   convex/recordNumbers, convex/purchasingKeys.
  */
 import { expect } from "vitest";
 import type { TestConvex } from "convex-test";
@@ -17,6 +17,11 @@ import {
   flightColumns,
 } from "../../convex/collections";
 import { recordNumberOf } from "../../convex/recordNumbers";
+import {
+  purchasingKeysOf,
+  type PurchasingKey,
+  type PurchasingTable,
+} from "../../convex/purchasingKeys";
 
 /** The tables whose rows carry derived columns. */
 export type DerivedTable =
@@ -100,6 +105,38 @@ export async function expectRecordNumbers(
 }
 
 /**
+ * Expects each parts request's or purchase order's key rows to be exactly
+ * the keys its record derives (`purchasingKeysOf`), in any order.
+ *
+ * @param t - The convex-test instance holding the rows.
+ * @param table - The records' table.
+ * @param uuids - The records' uuids; each must exist.
+ */
+export async function expectPurchasingKeys(
+  t: TestConvex<typeof schema>,
+  table: PurchasingTable,
+  uuids: readonly string[],
+): Promise<void> {
+  expect(uuids.length, table).toBeGreaterThan(0);
+  for (const uuid of uuids) {
+    const { row, keys } = await t.run(async (ctx) => ({
+      row: await ctx.db
+        .query(table)
+        .withIndex("uuid", (q) => q.eq("uuid", uuid))
+        .unique(),
+      keys: await ctx.db
+        .query("purchasingKeys")
+        .withIndex("record", (q) => q.eq("table", table).eq("uuid", uuid))
+        .collect(),
+    }));
+    expect(row, `${table} ${uuid}`).not.toBeNull();
+    const expected = purchasingKeysOf(table, decode(table, [row!])[0])!;
+    const stored = keys.map(({ _id, _creationTime, ...key }) => key);
+    expect(sortKeys(stored), `${table} ${uuid}`).toEqual(sortKeys(expected));
+  }
+}
+
+/**
  * Removes the derived columns from rows, as they were stored before the
  * columns existed.
  *
@@ -130,6 +167,12 @@ function derive(table: DerivedTable, row: Doc<DerivedTable>): object {
   if (table === "flights") return flightColumns(row as Doc<"flights">);
   const [record] = decode(table, [row as Doc<typeof table>]);
   return derivedColumns(table, record);
+}
+
+function sortKeys(keys: PurchasingKey[]) {
+  return keys
+    .map((k) => [k.programUuid, k.table, k.kind, k.key, k.uuid].join(" "))
+    .sort();
 }
 
 function numberOf(

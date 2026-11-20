@@ -21,8 +21,14 @@ import {
   archivedCardDocs,
   archivedCardDocsByUuid,
   discrepancyDocsByUuid,
+  highestRequestDocs,
   inLoadOrder,
+  inProgramOrder,
   openWorkOrderDocs,
+  orderDocsByKey,
+  partsRequestDocsOn,
+  requestDocsByKey,
+  requestDocsByUuid,
   taskCardDocsByUuid,
   workOrderCardDocs,
   workOrderCostDocs,
@@ -32,6 +38,7 @@ import {
   applyRequestCommand,
   requestCommandSchema,
   type PartsRequest,
+  type RequestCommand,
 } from "../src/domain/partsRequests";
 import { activeProgram } from "../src/domain/programs";
 import { syncWorkOrderLedger } from "./costLedger";
@@ -79,6 +86,15 @@ export const execute = mutation({
     }),
 });
 
+// Stock, the ADs a request's source may name, and the inspections; the rest
+// is read by what the command names.
+const STANDING = ["management", "airworthiness", "inspections"] as const;
+
+type Loaded = Awaited<ReturnType<typeof sourceHistory>> & {
+  partsRequests: Doc<"partsRequests">[];
+  purchaseOrders: Doc<"purchaseOrders">[];
+};
+
 // The command's request, then the occurrences the applier created for a saved
 // list: the requests with no stored row. Only these are written, so a loaded
 // row the command left alone is never rewritten.
@@ -118,8 +134,10 @@ async function patchStock(
   }
 }
 
-// The bounded working set (ADR-0013). Stock, parts requests, purchase orders,
-// ADs and inspections load whole (H5 keeps requests and orders complete). Of
+// The bounded working set (ADR-0013, H5). Stock, ADs and inspections load
+// whole. Of the program's requests, those its rules read (requestsRead) and,
+// for a recurring list, what it serves (listsServed); of its orders, those
+// allocated to the requests read, which their progress and status count. Of
 // history, only what the request's source names: its work order, its job
 // card (live or archived) and the order owning that card, with those orders'
 // cards, archived cards and cost records, which an issue's price goes on
@@ -130,15 +148,88 @@ async function loadRequest(
   state: ProgramContext,
   command: unknown,
 ) {
-  const fleet = state.aircraft;
-  const { snapshot, docs } = await hydrate(ctx, state, [
-    "management",
-    "partsRequests",
-    "purchaseOrders",
-    "airworthiness",
-    "inspections",
+  const c = requestCommandSchema.safeParse(command).data;
+  // Without an active program the applier refuses the command, and no
+  // request or order is stored under "", so nothing more is read.
+  const program = activeProgram(state) ?? "";
+  const { snapshot, docs } = await hydrate(ctx, state, STANDING);
+  const read = await requestsRead(ctx, program, c);
+  const requests = decode("partsRequests", read);
+  const history = await sourceHistory(ctx, state, sourcesNamed(c, requests));
+  const served = await listsServed(ctx, program, c, requests, history);
+  const loaded = {
+    ...history,
+    partsRequests: inProgramOrder([...read, ...served]),
+    purchaseOrders: await orderDocsByKey(
+      ctx,
+      program,
+      "allocation",
+      read.map((d) => d.uuid),
+    ),
+  };
+  return {
+    snapshot: { ...snapshot, ...decodeLoaded(loaded) },
+    docs: { ...docs, ...loaded },
+  };
+}
+
+// The program's requests the applier's rules read: the one the command
+// names, those whose history holds its request id (a replay, or an id used
+// before), those naming a component its draft lines repair (an open
+// repair), and the highest-numbered, which a new number continues from.
+async function requestsRead(
+  ctx: MutationCtx,
+  program: string,
+  c: RequestCommand | undefined,
+) {
+  const named = c?.kind === "save" ? c.draft.uuid : (c?.uuid ?? "");
+  const lines = c?.kind === "save" ? c.draft.lines : [];
+  return inProgramOrder([
+    ...(await requestDocsByUuid(ctx, program, [named])),
+    ...(await requestDocsByKey(ctx, program, "requestId", [
+      c?.requestUuid ?? "",
+    ])),
+    ...(await requestDocsByKey(
+      ctx,
+      program,
+      "component",
+      lines.map((l) => l.componentUuid),
+    )),
+    ...(await highestRequestDocs(ctx, program)),
   ]);
-  const named = sourcesNamed(command, snapshot.partsRequests ?? []);
+}
+
+// Saving or resending an active recurring list serves the open work orders
+// on its aircraft (finishCommand): every active list there, and the requests
+// raised on those orders, which say what each list has served already.
+async function listsServed(
+  ctx: MutationCtx,
+  program: string,
+  c: RequestCommand | undefined,
+  read: PartsRequest[],
+  { workOrders }: { workOrders: Doc<"workOrders">[] },
+) {
+  const recurring = c?.kind === "save" && c.draft.recurring;
+  if (!recurring && !read.some((r) => r.recurring && !r.cancelled)) return [];
+  const aircraft = workOrders.map((w) => w.aircraftUuid);
+  return [
+    ...(await requestDocsByKey(ctx, program, "list", aircraft)),
+    ...(await partsRequestDocsOn(ctx, program, {
+      workOrderUuids: workOrders.map((w) => w.uuid),
+      sourceUuids: [],
+    })),
+  ];
+}
+
+// The work order, job card (live or archived) and problem report the
+// request's source names, the orders owning those cards, their cards and
+// cost records, and the program's open work orders.
+async function sourceHistory(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  named: ReturnType<typeof sourcesNamed>,
+) {
+  const fleet = state.aircraft;
   const ownCards = await taskCardDocsByUuid(ctx, named.jobCards, fleet);
   const ownArchived = await archivedCardDocsByUuid(ctx, named.jobCards, fleet);
   const orders = [
@@ -146,7 +237,7 @@ async function loadRequest(
     ...decode("taskCards", ownCards).map((c) => c.workOrderUuid),
     ...decode("archivedTaskCards", ownArchived).map((c) => c.workOrderUuid),
   ];
-  const loaded = {
+  return {
     workOrders: inLoadOrder(
       [
         ...(await workOrderDocsByUuid(ctx, orders, fleet)),
@@ -165,25 +256,24 @@ async function loadRequest(
     costs: await programCostDocs(ctx, state, orders),
     discrepancies: await discrepancyDocsByUuid(ctx, named.discrepancies, fleet),
   };
+}
+
+function decodeLoaded(loaded: Loaded) {
   return {
-    snapshot: {
-      ...snapshot,
-      workOrders: decode("workOrders", loaded.workOrders),
-      taskCards: decode("taskCards", loaded.taskCards),
-      archivedTaskCards: decode("archivedTaskCards", loaded.archivedTaskCards),
-      costs: decode("costs", loaded.costs),
-      discrepancies: loaded.discrepancies,
-    },
-    docs: { ...docs, ...loaded },
+    workOrders: decode("workOrders", loaded.workOrders),
+    taskCards: decode("taskCards", loaded.taskCards),
+    archivedTaskCards: decode("archivedTaskCards", loaded.archivedTaskCards),
+    costs: decode("costs", loaded.costs),
+    discrepancies: loaded.discrepancies,
+    partsRequests: decode("partsRequests", loaded.partsRequests),
+    purchaseOrders: decode("purchaseOrders", loaded.purchaseOrders),
   };
 }
 
 // The work orders, job cards and problem reports the command's draft and the
 // stored request name as their source. A command that does not parse names
 // none; the applier refuses it.
-function sourcesNamed(command: unknown, requests: PartsRequest[]) {
-  const parsed = requestCommandSchema.safeParse(command);
-  const c = parsed.success ? parsed.data : undefined;
+function sourcesNamed(c: RequestCommand | undefined, requests: PartsRequest[]) {
   const draft = c?.kind === "save" ? c.draft : undefined;
   const uuid = draft?.uuid ?? (c && "uuid" in c ? c.uuid : undefined);
   const stored = requests.find((r) => r.uuid === uuid);

@@ -15,6 +15,7 @@ import type { Id } from "./_generated/dataModel";
 import {
   expectDerivedColumns,
   expectRecordNumbers,
+  expectPurchasingKeys,
   type DerivedTable,
 } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
@@ -173,7 +174,7 @@ it("seeds records that parse with their schemas, one sample state per aircraft",
   });
 });
 
-it("stores the derived columns on every record it seeds that has them (ADR-0013)", async () => {
+it("stores the derived columns, number rows and lookup keys on every record it seeds that has them (ADR-0013)", async () => {
   const t = convexTest(schema, modules);
   await t.run((ctx) => ctx.db.insert("users", ADMIN));
   await t.mutation(seed, { email: ADMIN.email });
@@ -192,6 +193,12 @@ it("stores the derived columns on every record it seeds that has them (ADR-0013)
     );
     if (table === "workOrders" || table === "taskCards")
       await expectRecordNumbers(
+        t,
+        table,
+        rows.map((r) => r.uuid),
+      );
+    if (table === "purchaseOrders")
+      await expectPurchasingKeys(
         t,
         table,
         rows.map((r) => r.uuid),

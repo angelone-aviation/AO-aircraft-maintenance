@@ -22,7 +22,7 @@ import { internal } from "./_generated/api";
 import { windowedHistory } from "./historyWindow";
 import { context } from "./programContext";
 import { activeProgram } from "../src/domain/programs";
-import { seedProgramVolume, VOLUME } from "../tests/fixtures/programVolume";
+import { seedProgramVolume } from "../tests/fixtures/programVolume";
 import {
   findVolumeTargets,
   volumeOperations,
@@ -44,9 +44,21 @@ const FLAT = 1.1;
 // The plan's headroom on Convex's 4,096 index ranges a function may read
 // (ADR-0013): a quarter of the limit.
 const INDEX_RANGE_BAR = 1000;
-// The parts requests and purchase orders each fleet-year adds.
-const PURCHASING_ROWS_PER_YEAR =
-  VOLUME.aircraft * (VOLUME.partsRequests + VOLUME.purchaseOrders);
+
+// Every parts-request and purchase-order command the fixture measures.
+const PURCHASING_COMMANDS = [
+  "partsRequest.save",
+  "partsRequest.edit",
+  "partsRequest.reserve",
+  "partsRequest.issue",
+  "partsRequest.cancel",
+  "purchaseOrder.save",
+  "purchaseOrder.edit",
+  "purchaseOrder.issue",
+  "purchaseOrder.receive",
+  "purchaseOrder.core",
+  "purchaseOrder.close",
+];
 
 type Reads = { documents: number; bytes: number; indexRanges: number };
 type Handler<C> = (ctx: C, args: object) => Promise<unknown>;
@@ -99,12 +111,10 @@ describe("the bounded saves read the same at three years as at one (S3)", () => 
   ])("%s", (operation) => expectFlat(operation));
 });
 
-// H5 keeps parts requests and purchase orders complete, and these saves read
-// them all; everything else they read is bounded.
-describe("Characterizes current behaviour: saves that read every parts request and purchase order grow by those alone", () => {
-  it.each(["partsRequest.save", "purchaseOrder.save"])("%s", (operation) =>
-    expectGrowthOf(operation, PURCHASING_ROWS_PER_YEAR),
-  );
+// They read the requests and orders a command names, by uuid or lookup key
+// (convex/purchasingKeys.ts), not every one the program holds.
+describe("the parts-request and purchase-order commands read the same at three years as at one (H5)", () => {
+  it.each(PURCHASING_COMMANDS)("%s", (operation) => expectFlat(operation));
 });
 
 // The plan's bar for a bounded read (ADR-0013): within 10% of year 1.
@@ -112,15 +122,6 @@ function expectFlat(name: string) {
   const [one, , three] = yearsOf(name);
   expect(three.documents, name).toBeLessThanOrEqual(one.documents * FLAT);
   expect(three.bytes, name).toBeLessThanOrEqual(one.bytes * FLAT);
-  expectSameRanges(name);
-}
-
-function expectGrowthOf(name: string, documentsPerYear: number) {
-  const [one, two, three] = yearsOf(name);
-  expect(
-    [two.documents - one.documents, three.documents - two.documents],
-    name,
-  ).toEqual([documentsPerYear, documentsPerYear]);
   expectSameRanges(name);
 }
 

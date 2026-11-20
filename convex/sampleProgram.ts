@@ -5,6 +5,7 @@
  *   nothing seeds automatically.
  * Dependencies: convex/access, convex/defaultGroups, convex/collections,
  *   convex/fileColumns, convex/recordNumbers, convex/purchaseAllocations,
+ *   convex/purchasingKeys,
  *   src/domain (management, workOrders, taskCards, airworthiness,
  *   checklists, inspectionTemplates, flightPlans, purchaseOrders).
  *
@@ -17,6 +18,7 @@ import { decode, encode, flightColumns } from "./collections";
 import { insertInventoryFile } from "./fileColumns";
 import { syncRecordNumber } from "./recordNumbers";
 import { syncPurchaseAllocations } from "./purchaseAllocations";
+import { syncPurchasingKeys } from "./purchasingKeys";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { WithoutSystemFields } from "convex/server";
@@ -808,6 +810,7 @@ async function insertPurchaseOrder(s: Seeding, a: Sample) {
   const po = poSchema.parse(samplePurchaseOrder(s, a));
   await s.ctx.db.insert("purchaseOrders", encode("purchaseOrders", po));
   await syncPurchaseAllocations(s.ctx, po);
+  await syncPurchasingKeys(s.ctx, "purchaseOrders", po);
 }
 
 function samplePurchaseOrder(s: Seeding, a: Sample) {

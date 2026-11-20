@@ -738,6 +738,24 @@ export default defineSchema({
   })
     .index("request", ["requestUuid"])
     .index("order", ["poUuid"]),
+  // Derived like the two above: what each parts request and purchase order
+  // is looked up by, one row per key, so their saves read the records a rule
+  // names instead of every request and order (H5, convex/purchasingKeys.ts).
+  // Filled for older rows by migrations:backfillHistoryColumns.
+  purchasingKeys: defineTable({
+    programUuid: v.string(),
+    table: v.union(v.literal("partsRequests"), v.literal("purchaseOrders")),
+    kind: v.union(
+      v.literal("requestId"),
+      v.literal("component"),
+      v.literal("allocation"),
+      v.literal("list"),
+    ),
+    key: v.string(),
+    uuid: v.string(),
+  })
+    .index("key", ["programUuid", "table", "kind", "key"])
+    .index("record", ["table", "uuid"]),
   // Retired: nothing reads or writes it since commandRequests replaced it. It
   // stays declared only because Convex refuses a deploy whose schema drops a
   // table that still holds rows; a later batch drops it once it is empty.

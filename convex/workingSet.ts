@@ -2,24 +2,29 @@
  * Responsibility: The bounded reads a save loads instead of whole history
  *   (ADR-0013): records by uuid, a work order's job cards, cards on no work
  *   order, open work orders and problem reports, recent close-outs, a work
- *   order's parts requests and costs, and the highest-numbered request.
+ *   order's parts requests and costs, requests and orders by lookup key, and
+ *   the highest-numbered request and order.
  * Layer: Server. Convex reads only, each within the caller's Flight Program;
  *   the rules that use them are the domain's.
- * Dependencies: ./_generated (types), ./collections.
+ * Dependencies: ./_generated (types), ./collections, ./purchasingKeys.
  *
  * Each loader returns rows in the order a whole-history loader does (by
- * aircraft, then creation time), so an applier that takes the first match
- * finds the same record in a bounded load as in a full one.
+ * aircraft, or for program-wide tables by program, then creation time), so
+ * an applier that takes the first match finds the same record in a bounded
+ * load as in a full one.
  */
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { decode } from "./collections";
+import { uuidsByKey, type PurchasingKeyKind } from "./purchasingKeys";
 
 type Ctx = QueryCtx | MutationCtx;
 /** The Flight Program's aircraft, as the caller's context holds them. */
 type Fleet = readonly { uuid: string }[];
 /** A row kept per aircraft. */
 type AircraftRow = { _id: string; _creationTime: number; aircraftUuid: string };
+/** A row kept per Flight Program. */
+type ProgramRow = { _id: string; _creationTime: number; programUuid: string };
 
 /**
  * Work orders by uuid, on the program's aircraft only, so another program's
@@ -342,6 +347,106 @@ export function highestRequestDocs(ctx: Ctx, programUuid: string) {
 }
 
 /**
+ * The Flight Program's purchase order holding the highest number, which the
+ * next number continues from.
+ *
+ * @returns None or one.
+ */
+export function highestOrderDocs(ctx: Ctx, programUuid: string) {
+  return ctx.db
+    .query("purchaseOrders")
+    .withIndex("number", (q) => q.eq("programUuid", programUuid))
+    .order("desc")
+    .take(1);
+}
+
+/**
+ * A Flight Program's parts requests by uuid, so another program's request
+ * reads as missing, as the program loader leaves it out.
+ *
+ * @param uuids - Request uuids; blanks and repeats are skipped.
+ * @returns In the program loader's order (creation time).
+ */
+export const requestDocsByUuid = (
+  ctx: Ctx,
+  programUuid: string,
+  uuids: Iterable<string>,
+) =>
+  programRowsByUuid(uuids, programUuid, (uuid) =>
+    ctx.db
+      .query("partsRequests")
+      .withIndex("uuid", (q) => q.eq("uuid", uuid))
+      .collect(),
+  );
+
+/**
+ * A Flight Program's purchase orders by uuid, so another program's order
+ * reads as missing, as the program loader leaves it out.
+ *
+ * @param uuids - Order uuids; blanks and repeats are skipped.
+ * @returns In the program loader's order (creation time).
+ */
+export const orderDocsByUuid = (
+  ctx: Ctx,
+  programUuid: string,
+  uuids: Iterable<string>,
+) =>
+  programRowsByUuid(uuids, programUuid, (uuid) =>
+    ctx.db
+      .query("purchaseOrders")
+      .withIndex("uuid", (q) => q.eq("uuid", uuid))
+      .collect(),
+  );
+
+/**
+ * A Flight Program's parts requests that hold any of the given lookup keys
+ * of one kind (convex/purchasingKeys.ts).
+ *
+ * @param keys - Blanks and repeats are skipped.
+ * @returns In the program loader's order (creation time).
+ */
+export async function requestDocsByKey(
+  ctx: Ctx,
+  programUuid: string,
+  kind: PurchasingKeyKind,
+  keys: Iterable<string>,
+): Promise<Doc<"partsRequests">[]> {
+  const uuids = await uuidsByKey(ctx, programUuid, "partsRequests", kind, keys);
+  return requestDocsByUuid(ctx, programUuid, uuids);
+}
+
+/**
+ * A Flight Program's purchase orders that hold any of the given lookup keys
+ * of one kind (convex/purchasingKeys.ts).
+ *
+ * @param keys - Blanks and repeats are skipped.
+ * @returns In the program loader's order (creation time).
+ */
+export async function orderDocsByKey(
+  ctx: Ctx,
+  programUuid: string,
+  kind: PurchasingKeyKind,
+  keys: Iterable<string>,
+): Promise<Doc<"purchaseOrders">[]> {
+  const uuids = await uuidsByKey(
+    ctx,
+    programUuid,
+    "purchaseOrders",
+    kind,
+    keys,
+  );
+  return orderDocsByUuid(ctx, programUuid, uuids);
+}
+
+/**
+ * Rows of a program-wide table from several bounded reads as the program
+ * loader holds them: each once, by creation time.
+ */
+export function inProgramOrder<D extends ProgramRow>(rows: readonly D[]): D[] {
+  return byCreation(unique(rows));
+}
+
+/**
  * Cost rows from several bounded reads as the program loader holds them:
  * each once, records on an aircraft first, by aircraft uuid (as the program
  * index orders it) then creation time, and the settings row (aircraft "")
@@ -379,6 +484,18 @@ async function rowsByUuid<D extends AircraftRow>(
   const wanted = [...new Set(uuids)].filter(Boolean);
   const rows = await Promise.all(wanted.map(read));
   return inLoadOrder(onFleet(rows.flat(), fleet), fleet);
+}
+
+async function programRowsByUuid<D extends ProgramRow>(
+  uuids: Iterable<string>,
+  programUuid: string,
+  read: (uuid: string) => Promise<D[]>,
+): Promise<D[]> {
+  const wanted = [...new Set(uuids)].filter(Boolean);
+  const rows = await Promise.all(wanted.map(read));
+  return inProgramOrder(
+    rows.flat().filter((r) => r.programUuid === programUuid),
+  );
 }
 
 function onFleet<D extends { aircraftUuid: string }>(

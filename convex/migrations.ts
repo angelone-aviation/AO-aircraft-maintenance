@@ -1,11 +1,13 @@
 /**
- * Responsibility: Fills the history window's derived columns on rows written
- *   before they existed, rebuilds the recordNumbers and costLedger tables,
- *   and checks the ledger against its records each night.
+ * Responsibility: Fills the history window's derived columns and the
+ *   purchasing lookup keys on rows written before they existed, rebuilds
+ *   the recordNumbers and costLedger tables, and checks the ledger against
+ *   its records each night.
  * Layer: Server. Internal functions run by hand with `npx convex run`, and
  *   the reconcile by crons.ts; no public entry point and no change-log rows.
  * Dependencies: convex/values, convex/server, ./_generated, ./collections,
- *   ./recordNumbers, ./costLedger, ./fileColumns, ./purchaseAllocations.
+ *   ./recordNumbers, ./costLedger, ./fileColumns, ./purchaseAllocations,
+ *   ./purchasingKeys.
  *
  * The window's indexes (ADR-0013) find only rows that carry the columns, and
  * numbering reads only the number rows, so every deployment holding data
@@ -43,6 +45,7 @@ import {
 } from "./costLedger";
 import { storedFileColumns } from "./fileColumns";
 import { syncPurchaseAllocations } from "./purchaseAllocations";
+import { syncPurchasingKeys } from "./purchasingKeys";
 
 const BACKFILL_TABLES = [
   "flights",
@@ -98,9 +101,9 @@ const LOGGED_DIFFERENCES = 20;
  * Fills the derived columns on one page of a table's rows, where any is
  * missing or differs from what the row's record derives (for a file row,
  * its owner: the card's aircraft and work order, the item's program), and a
- * purchase order's allocation rows where they differ from its lines.
- * Writes only those columns and rows, never the record, so no change-log
- * row is due.
+ * parts request's or purchase order's lookup keys (convex/purchasingKeys.ts)
+ * and a purchase order's allocation rows where they differ from its lines.
+ * Writes only those, never the record, so no change-log row is due.
  *
  * @param table - The table to fill.
  * @param cursor - The page to fill; null for the first.
@@ -127,12 +130,13 @@ export const fillHistoryColumns = internalMutation({
 
 /**
  * Fills the history window's derived columns on every row that lacks them,
- * table by table, one page per transaction. Idempotent and safe beside live
- * traffic, since every write since the columns sets them; run it until it
- * reports 0 missing. Interrupted, a rerun skips the rows already filled.
+ * and the parts requests' and purchase orders' lookup keys, table by table,
+ * one page per transaction. Idempotent and safe beside live traffic, since
+ * every write since the columns and keys sets them; run it until it reports
+ * 0 missing. Interrupted, a rerun skips the rows already filled.
  *
- * @returns The rows found missing or stale columns, now filled: `missing` in
- *   all, `tables` by table.
+ * @returns The rows found missing or stale columns or keys, now filled:
+ *   `missing` in all, `tables` by table.
  * @throws {Error} {@link fillHistoryColumns}'s refusal of a damaged payload,
  *   after the pages before it are filled.
  */
@@ -164,19 +168,40 @@ async function fillTable(ctx: ActionCtx, table: BackfillTable) {
   return filled;
 }
 
-// A row counts as filled once if its columns or, for an order, its
-// allocation rows had to change.
+// A row counts once, whether its columns, its keys, its allocation rows or
+// several of them were missing.
 async function fillRow(
   ctx: MutationCtx,
   table: BackfillTable,
   row: Doc<BackfillTable>,
 ): Promise<boolean> {
   const columns = await columnsOf(ctx, table, row);
-  const stale = !holdsColumns(row, columns);
-  if (stale) await ctx.db.patch(row._id, columns);
-  if (table !== "purchaseOrders") return stale;
+  const keys = await fillKeys(ctx, table, row);
+  const allocations = await fillAllocations(ctx, table, row);
+  if (holdsColumns(row, columns)) return keys > 0 || allocations;
+  await ctx.db.patch(row._id, columns);
+  return true;
+}
+
+function fillKeys(
+  ctx: MutationCtx,
+  table: BackfillTable,
+  row: Doc<BackfillTable>,
+): Promise<number> {
+  if (table !== "partsRequests" && table !== "purchaseOrders")
+    return Promise.resolve(0);
+  const record = recordOf(table, row as Doc<typeof table>);
+  return syncPurchasingKeys(ctx, table, record);
+}
+
+function fillAllocations(
+  ctx: MutationCtx,
+  table: BackfillTable,
+  row: Doc<BackfillTable>,
+): Promise<boolean> {
+  if (table !== "purchaseOrders") return Promise.resolve(false);
   const order = recordOf(table, row as Doc<"purchaseOrders">);
-  return (await syncPurchaseAllocations(ctx, order)) || stale;
+  return syncPurchaseAllocations(ctx, order);
 }
 
 async function columnsOf(
