@@ -361,20 +361,21 @@ _En route: keeping it flying._
 
 _The chart table: where everything is written down._
 
-| Looking for                            | Start at                                                                                                                           |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Where to start, and how to run the app | The [handbook](docs/handbook/README.md): what the app is, how it works, operations, costs, risks and history                       |
-| How to use a screen                    | The [user guide](docs/wiki/Home.md), by role and by screen                                                                         |
-| What a word means                      | [GLOSSARY.md](GLOSSARY.md)                                                                                                         |
-| How a feature behaves                  | [`docs/`](docs/), one page per feature; the tour in [What it does](#what-it-does) links to each                                    |
-| Why something was decided              | [`docs/adr/`](docs/adr/), one record per standing decision                                                                         |
-| How the system fits together           | [CONTEXT.md](CONTEXT.md) and the [architecture report](docs/architecture/README.md)                                                |
-| What is left before go-live            | [Go-live checklist](docs/go-live-checklist.md)                                                                                     |
-| How to operate production              | [`docs/runbooks/`](docs/runbooks/), listed under [Runbooks](#runbooks)                                                             |
-| Security reviews and reporting         | [2 Nov review](docs/security/review-2026-11-02.md), [4 Nov review](docs/security/review-2026-11-04.md), [SECURITY.md](SECURITY.md) |
-| Bug hunts and how to reproduce them    | [3 Nov](docs/qa/bug-hunt-2026-11-03/README.md) and [10 Nov](docs/qa/bug-hunt-2026-11-10/README.md)                                 |
-| The agreed scope and original brief    | [First delivery](docs/first-delivery.md) and [requirements.md](requirements.md)                                                    |
-| A sample program to explore            | [Hosted sample aviation program](docs/sample-program.md)                                                                           |
+| Looking for                                         | Start at                                                                                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Where to start, and how to run the app              | The [handbook](docs/handbook/README.md): what the app is, how it works, operations, costs, risks and history                       |
+| How to use a screen                                 | The [user guide](docs/wiki/Home.md), by role and by screen                                                                         |
+| What a word means                                   | [GLOSSARY.md](GLOSSARY.md)                                                                                                         |
+| How a feature behaves                               | [`docs/`](docs/), one page per feature; the tour in [What it does](#what-it-does) links to each                                    |
+| Why something was decided                           | [`docs/adr/`](docs/adr/), one record per standing decision                                                                         |
+| How the system fits together                        | [CONTEXT.md](CONTEXT.md) and the [architecture report](docs/architecture/README.md)                                                |
+| What is left before go-live                         | [Go-live checklist](docs/go-live-checklist.md)                                                                                     |
+| How to operate production                           | [`docs/runbooks/`](docs/runbooks/), listed under [Runbooks](#runbooks)                                                             |
+| Which keys and logins exist, and where each is kept | [Credentials and keys](docs/handbook/3-running-it/credentials.md)                                                                  |
+| Security reviews and reporting                      | [2 Nov review](docs/security/review-2026-11-02.md), [4 Nov review](docs/security/review-2026-11-04.md), [SECURITY.md](SECURITY.md) |
+| Bug hunts and how to reproduce them                 | [3 Nov](docs/qa/bug-hunt-2026-11-03/README.md) and [10 Nov](docs/qa/bug-hunt-2026-11-10/README.md)                                 |
+| The agreed scope and original brief                 | [First delivery](docs/first-delivery.md) and [requirements.md](requirements.md)                                                    |
+| A sample program to explore                         | [Hosted sample aviation program](docs/sample-program.md)                                                                           |
 
 ## Repository layout
 
