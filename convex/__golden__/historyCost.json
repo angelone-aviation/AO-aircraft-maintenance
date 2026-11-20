@@ -185,5 +185,22 @@
    "documents": 1038,
    "indexRanges": 26
   }
+ },
+ "history.costReport": {
+  "1": {
+   "bytes": 18481,
+   "documents": 38,
+   "indexRanges": 27
+  },
+  "2": {
+   "bytes": 18481,
+   "documents": 38,
+   "indexRanges": 27
+  },
+  "3": {
+   "bytes": 18481,
+   "documents": 38,
+   "indexRanges": 27
+  }
  }
 }

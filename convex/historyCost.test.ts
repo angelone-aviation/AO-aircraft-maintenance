@@ -70,6 +70,7 @@ describe("the bounded saves read the same at three years as at one (S3)", () => 
     "taskCard.evidence",
     "cost.partUnitCost",
     "auditHistory.weeklySummary",
+    "history.costReport",
   ])("%s", (operation) => expectFlat(operation));
 });
 

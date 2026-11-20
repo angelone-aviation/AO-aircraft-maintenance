@@ -3,7 +3,7 @@
  *   on a volume database, and the records they act on.
  * Layer: Test. Fixture for convex-test suites; never shipped in the build.
  * Dependencies: convex (workOrders, taskCards, partsRequests, costs,
- *   purchaseOrders, auditHistory, collections, recordNumbers),
+ *   purchaseOrders, auditHistory, history, collections, recordNumbers),
  *   tests/fixtures/programVolume.ts, src/domain stored-record schemas.
  */
 import type { MutationCtx } from "../../convex/_generated/server";
@@ -15,6 +15,7 @@ import { execute as executePartsRequest } from "../../convex/partsRequests";
 import { execute as executeCost } from "../../convex/costs";
 import { execute as executePurchaseOrder } from "../../convex/purchaseOrders";
 import { summary } from "../../convex/auditHistory";
+import { costReport } from "../../convex/history";
 import { VOLUME_PROGRAM } from "./programVolume";
 import {
   isOpenWorkOrder,
@@ -92,8 +93,8 @@ export async function findVolumeTargets(
 }
 
 /**
- * The saves the history-paging plan measures, and the Weekly summary, each
- * as an administrator of the volume program runs it.
+ * The saves the history-paging plan measures, the Weekly summary and the
+ * cost report, each as an administrator of the volume program runs it.
  *
  * @returns In the order the measurements run them.
  */
@@ -128,6 +129,17 @@ export function volumeOperations(targets: VolumeTargets): VolumeOperation[] {
         programUuid: VOLUME_PROGRAM,
         from: "2026-10-27",
         to: "2026-11-02",
+      },
+    },
+    {
+      name: "history.costReport",
+      kind: "query",
+      fn: costReport,
+      args: {
+        programUuid: VOLUME_PROGRAM,
+        aircraftUuid: "volume-aircraft-1",
+        from: "2026-01-01",
+        to: "2026-12-31",
       },
     },
   ];

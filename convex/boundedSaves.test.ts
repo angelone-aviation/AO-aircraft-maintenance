@@ -98,6 +98,7 @@ it.each([
   "cost.partUnitCost",
   "purchaseOrder.save",
   "auditHistory.weeklySummary",
+  "history.costReport",
 ])("%s: the same result and writes at one and three fleet-years", (name) => {
   const [one, three] = outcomes.get(name)!;
   expect(three).toEqual(one);
