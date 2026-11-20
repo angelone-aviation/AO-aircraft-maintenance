@@ -219,5 +219,41 @@
    "documents": 2823,
    "indexRanges": 355
   }
+ },
+ "auditHistory.summary.7d": {
+  "1": {
+   "bytes": 1970581,
+   "documents": 1738,
+   "indexRanges": 26
+  },
+  "3": {
+   "bytes": 1970581,
+   "documents": 1738,
+   "indexRanges": 26
+  }
+ },
+ "auditHistory.summary.31d": {
+  "1": {
+   "bytes": 5489327,
+   "documents": 3838,
+   "indexRanges": 50
+  },
+  "3": {
+   "bytes": 5489327,
+   "documents": 3838,
+   "indexRanges": 50
+  }
+ },
+ "auditHistory.summary.365d": {
+  "1": {
+   "bytes": 7696585,
+   "documents": 5238,
+   "indexRanges": 66
+  },
+  "3": {
+   "bytes": 7696585,
+   "documents": 5238,
+   "indexRanges": 66
+  }
  }
 }
