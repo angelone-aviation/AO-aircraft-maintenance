@@ -2,12 +2,13 @@
  * Responsibility: The Discrepancies screen: problem reports, their summary,
  *   search and filter, and the report, defer and resolve dialogs.
  * Layer: UI. A screen over the workspace snapshot; holds no business rules.
- * Dependencies: src/data/store, src/domain (model, deferrals,
- *   discrepancyList, pilotView), ./design, ./ui, ./TermTip, ./recordDates,
- *   and the deferral, parts, job card and work order components.
+ * Dependencies: src/data (store, historyPages), src/domain (model,
+ *   deferrals, discrepancyList, pilotView, retention), ./design, ./ui,
+ *   ./TermTip, ./recordDates, ./HistoryPager, and the deferral, parts, job
+ *   card and work order components.
  */
 import "../styles/screens/discrepancies.css";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   CaretDown,
@@ -20,6 +21,8 @@ import {
   XCircle,
 } from "@phosphor-icons/react";
 import { useWorkspace, type Workspace } from "../data/store";
+import { useHistoryPages, withHistory } from "../data/historyPages";
+import { historyWindowMonths } from "../domain/retention";
 import { MAX_RESOLUTION_LENGTH } from "../domain/deferrals";
 import {
   discrepancyCounts,
@@ -57,6 +60,7 @@ import {
 import { RequestPartsButton } from "./PartsRequests";
 import { dateTime, shortDate } from "./recordDates";
 import { DiscrepancyParts } from "./RequiredParts";
+import { HistoryPager } from "./HistoryPager";
 import { LinkedTaskCards } from "./TaskCards";
 import { TermTip } from "./TermTip";
 import { AsyncForm, Field, value } from "./ui";
@@ -101,19 +105,24 @@ const SHOW_ALL = "all";
  * by a search of registration, description, resolution and reporter, under
  * counts of every open, grounding, deferred and this month's resolved report.
  *
- * @returns One card of report rows, restacked on a phone. Reporting a
- *   problem queues it on this device, so it works offline; deferring and
- *   recording a resolution need a connection and the resolve permission.
- *   Pilot view leaves out the parts, job card and work order tools.
+ * @returns One card of report rows, restacked on a phone. Under All, Load
+ *   older adds the resolved reports the workspace's window leaves out, and
+ *   the total reads "in the last 3 months" (H3): the counts cover the
+ *   workspace, not the older reports loaded. Reporting a problem queues it
+ *   on this device, so it works offline; deferring and recording a
+ *   resolution need a connection and the resolve permission. Pilot view
+ *   leaves out the parts, job card and work order tools.
  */
 export function Discrepancies() {
-  const { snapshot: s, online, connected } = useWorkspace();
+  const { snapshot: workspace, online, connected } = useWorkspace();
+  const older = useReportHistory(workspace!);
+  const s = older.s;
   const [adding, setAdding] = useState(false),
     [resolve, setResolve] = useState<string | null>(null),
     [defer, setDefer] = useState<string | null>(null),
     [showResolved, setShowResolved] = useState(false),
     [search, setSearch] = useState("");
-  const available = s!.aircraft.filter((a) => can(s!, a.uuid, "discrepancy"));
+  const available = s.aircraft.filter((a) => can(s, a.uuid, "discrepancy"));
   const actions = {
     disabled: !online || !connected,
     onDefer: setDefer,
@@ -126,12 +135,13 @@ export function Discrepancies() {
         onReport={() => setAdding(true)}
       />
       <DiscrepancyFilters
-        s={s!}
+        s={workspace!}
         filters={{ search, showResolved }}
         onSearch={setSearch}
         onShowResolved={setShowResolved}
       />
-      <ReportList s={s!} filters={{ search, showResolved }} actions={actions} />
+      <ReportList s={s} filters={{ search, showResolved }} actions={actions} />
+      {showResolved && <OlderReports older={older} />}
       {adding && (
         <ReportDialog aircraft={available} onClose={() => setAdding(false)} />
       )}
@@ -140,6 +150,35 @@ export function Discrepancies() {
         <ResolveDialog uuid={resolve} onClose={() => setResolve(null)} />
       )}
     </>
+  );
+}
+
+// The workspace with the older reports loaded; every older report is
+// resolved, so only All lists them.
+function useReportHistory(workspace: Snapshot) {
+  const pages = useHistoryPages({ kind: "discrepancies" });
+  const s = useMemo(
+    () => withHistory(workspace, { ...pages.records, members: pages.members }),
+    [workspace, pages.records, pages.members],
+  );
+  return { s, pages, total: workspace.discrepancies.length };
+}
+
+// H3: the total counts the workspace, which keeps the last 3 months.
+function OlderReports({
+  older,
+}: {
+  older: ReturnType<typeof useReportHistory>;
+}) {
+  const { s, pages, total } = older;
+  const loaded = s.discrepancies.length - total;
+  const months = historyWindowMonths("discrepancies");
+  const reports = total === 1 ? "report" : "reports";
+  return (
+    <HistoryPager
+      pages={pages}
+      summary={`${total} ${reports} in the last ${months} months${loaded ? ` and ${loaded} older` : ""}`}
+    />
   );
 }
 

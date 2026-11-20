@@ -327,6 +327,27 @@ describe("Discrepancies", () => {
     expect(render(Discrepancies)).not.toContain("Report fixed");
   });
 
+  it("lists older reports under All, with the total in the last 3 months", () => {
+    setWorkspace({ ...ADMIN, discrepancies: REPORTS });
+    ui.pages = {
+      ...olderFlights([]),
+      records: {
+        ...emptyHistoryRecords(),
+        discrepancies: [
+          report("fixed", 4, { status: "resolved", description: "Stale" }),
+          report("archived", 0, { status: "resolved", resolution: "Old fix" }),
+        ],
+      },
+    };
+    expect(render(Discrepancies)).not.toContain("Load older");
+    handler("Segmented Show")("all");
+    const html = render(Discrepancies);
+    expect(html).toContain("Report archived");
+    expect(html).not.toContain("Stale");
+    expect(html).toContain("4 reports in the last 3 months and 1 older");
+    expect(html).toContain(">Load older<");
+  });
+
   it("counts a deferred report as deferred, not grounding", () => {
     setWorkspace({ ...ADMIN, discrepancies: REPORTS });
     const html = render(Discrepancies);
