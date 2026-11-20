@@ -501,14 +501,15 @@ async function holdsRowsOfAnother(
   program: string | undefined,
 ): Promise<boolean> {
   if (program === undefined) return true;
-  const rows = ctx.db.query("audit");
   const [below, above] = await Promise.all([
-    rows
+    ctx.db
+      .query("audit")
       .withIndex("aircraftProgram", (q) =>
         q.eq("aircraftUuid", aircraftUuid).lt("programUuid", program),
       )
       .first(),
-    rows
+    ctx.db
+      .query("audit")
       .withIndex("aircraftProgram", (q) =>
         q.eq("aircraftUuid", aircraftUuid).gt("programUuid", program),
       )
