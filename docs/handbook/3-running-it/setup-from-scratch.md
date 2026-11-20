@@ -122,7 +122,7 @@ What the scripts do:
 
 ### 3.3 Environment variables
 
-Set them in the dashboard (production deployment → **Settings** → **Environment Variables**, [docs](https://docs.convex.dev/production/environment-variables)) or with `npx convex env set NAME --prod` and the value on stdin. Every name below is read by code in `convex/`.
+Set them in the dashboard (production deployment → **Settings** → **Environment Variables**, [docs](https://docs.convex.dev/production/environment-variables)) or with `npx convex env set NAME --prod` and the value on stdin. Every name below is read by code in `convex/`. Which are secret, where Aaron keeps them, and what to do if one is lost or leaked: [credentials and keys](credentials.md).
 
 | Name                                                           | Where it goes | Required                                                           | What it's for                                                                                                                         | Example format                               |
 | -------------------------------------------------------------- | ------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -175,7 +175,7 @@ Create each under Settings → **Environments** → **New environment** ([docs](
 | `production` | Required reviewer: Aaron (public repository, so available on GitHub Free) |
 | `backups`    | **No** required reviewers: they would hold every nightly run              |
 
-Every secret and variable the workflows read:
+Every secret and variable the workflows read (keeping, losing and leaking them: [credentials and keys](credentials.md)):
 
 | Name                                                             | Where it goes                         | Required                                                      | What it's for                                                                                    | Example format                                         |
 | ---------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |

@@ -54,6 +54,7 @@ Budget 1–2 hours.
 
 - [ ] **Node version.** Aaron, 30 min. Raise `node-version` in all four workflows to the current Node LTS before the pinned one ends (Node 22: April 2027). Rebuild from a clean checkout: `npm ci && npm run check`.
 - [ ] **Rotate tokens.** Aaron, 30 min. The Cloudflare API token and the Dropbox tokens; record new expiry dates in [accounts](../../runbooks/accounts.md) and under Expiring dates ([incident runbook: leaked secret](../../runbooks/incident-response.md#leaked-secret) has the steps for each).
+- [ ] **Credentials check.** Aaron, 15 min. The password manager holds everything in [its checklist](credentials.md#your-password-manager-should-hold); two-step sign-in is on for GitHub, Cloudflare, Convex and Better Stack; the Convex deploy keys and Cloudflare API tokens list nothing unexpected ([credentials and keys](credentials.md)).
 - [ ] **VAPID key review.** Aaron, 5 min. The push key pair's yearly review date under Expiring dates. Rotating it signs every device out of alerts ([monitoring](../../runbooks/monitoring.md#alerts-by-email-and-on-devices)).
 - [ ] **Backup key.** Aaron, 15 min. If backup encryption is switched on, decrypt one backup with the organisation's sealed key copy ([backup runbook](../../runbooks/backup-restore.md)).
 - [ ] **Cost review.** Aaron, 15 min. Convex usage, R2 size and the Dropbox folder against [services and costs](../4-money-and-risk/services-and-costs.md). Monthly archives grow forever by design ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)).
@@ -65,6 +66,9 @@ Budget 1–2 hours.
 - [ ] **Add `security.txt` to Expiring dates.** Aaron, 5 min. Settings → System → Expiring dates, expiring 2027-10-04.
 - [ ] **Renew `security.txt` before 2027-09-04.** Aaron, 15 min. It expires **2027-10-04**. Set `Expires` about 11 months ahead in [`public/.well-known/security.txt`](../../../public/.well-known/security.txt), check `Contact` still reaches someone, deploy.
 - [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry ([airworthiness](../../airworthiness.md)).
+- [ ] **Fill the password manager.** Aaron, 30 min. Save everything in [its checklist](credentials.md#your-password-manager-should-hold), recovery codes included.
+- [ ] **Narrow the order-health-dashboard token.** Aaron, 10 min. Cloudflare → API Tokens: that project's build token has admin access to every R2 bucket, `angelone-backups` included. Limit it to that project's own bucket, or delete it if unused ([credentials](credentials.md#every-credential)).
+- [ ] **Delete the old sign-in variables.** Aaron, 2 min. Delete any `AUTH_GOOGLE_*` or `AUTH_MICROSOFT_ENTRA_ID_*` variable in Convex; the code no longer reads them ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)).
 - [ ] **Keep the credential key safe.** Aaron, 5 min, once the release with unencrypted backups (ADR-0014) is deployed. Save `CREDENTIALS_ENCRYPTION_KEY` in his password manager: the unencrypted job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.
 
 ## Whenever it happens

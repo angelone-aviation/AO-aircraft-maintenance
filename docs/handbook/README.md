@@ -46,6 +46,7 @@ Everything about Angel One in one place: what it is, how it works, how to run it
 | [Set up from scratch](3-running-it/setup-from-scratch.md) | Aaron                 | Accounts, every secret and variable, step-by-step set-up from nothing                     |
 | [Operations](3-running-it/operations.md)                  | Aaron                 | Releases, migrations, backups and restore, monitoring, incidents; each runbook summarised |
 | [Checklists](3-running-it/checklists.md)                  | Administrators, Aaron | Daily, weekly, monthly, quarterly, twice-yearly, yearly and dated checks                  |
+| [Credentials and keys](3-running-it/credentials.md)       | Aaron                 | Every key, token and login: where it lives, where it's kept, if lost, if leaked           |
 
 ### 4. Money and risk
 
