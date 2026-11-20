@@ -1,10 +1,10 @@
 /**
  * Responsibility: The demo's workspace view of its full fictional snapshot,
- *   and its history reads: older pages, one work order, and flights over a
- *   span.
+ *   and its history reads: older pages, one work order, flights over a span
+ *   and the cost report.
  * Layer: Data. Browser only; no Convex server, no React.
  * Dependencies: ./backend (types), src/domain (retention, historyReads,
- *   programs, model).
+ *   costs/costReport, programs, model).
  *
  * Each read scopes the full snapshot as the server's workspace query does,
  * then runs the domain function the server's queries are tested against
@@ -13,6 +13,7 @@
 import type { Backend } from "./backend";
 import { historyPage, retainedSnapshot } from "../domain/retention";
 import { flightRange, workOrderHistory } from "../domain/historyReads";
+import { snapshotCostReport } from "../domain/costs/costReport";
 import { scopedSnapshot } from "../domain/programs";
 import type { Snapshot } from "../domain/model";
 
@@ -26,7 +27,7 @@ export const DEMO_WINDOW_KEY = "angel-one-demo-window";
 /** The Backend members that read history beyond the workspace. */
 export type HistoryCalls = Pick<
   Backend,
-  "historyPage" | "workOrderHistory" | "flightsInRange"
+  "historyPage" | "workOrderHistory" | "flightsInRange" | "costReport"
 >;
 
 /**
@@ -59,6 +60,8 @@ export function demoHistoryCalls(
     workOrderHistory: async (uuid) =>
       workOrderHistory(await readScoped(), uuid),
     flightsInRange: async (request) => flightRange(await readScoped(), request),
+    costReport: async (request) =>
+      snapshotCostReport(await readScoped(), request),
   };
 }
 

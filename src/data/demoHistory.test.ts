@@ -22,6 +22,7 @@ import {
   type HistoryRecords,
 } from "../domain/retention";
 import { flightRange, workOrderHistory } from "../domain/historyReads";
+import { snapshotCostReport } from "../domain/costs/costReport";
 import { scopedSnapshot } from "../domain/programs";
 import type { Flight, Snapshot } from "../domain/model";
 import { workOrderSchema, type WorkOrder } from "../domain/workOrders";
@@ -90,6 +91,19 @@ describe("the demo's history reads", () => {
     const range = await calls.flightsInRange(span);
     expect(range).toEqual(flightRange(scoped, span));
     expect(range.flights.length).toBeGreaterThan(0);
+  });
+
+  it("build the cost report as the domain does over the scoped snapshot", async () => {
+    const all = agedDemo();
+    const calls = demoHistoryCalls(async () => all);
+    const request = {
+      aircraftUuid: N206,
+      from: "2024-01-01",
+      to: "2026-12-31",
+    };
+    expect(await calls.costReport(request)).toEqual(
+      snapshotCostReport(scopedSnapshot(all), request),
+    );
   });
 });
 

@@ -42,6 +42,15 @@ export interface LedgerTotals {
   totalCents: number;
 }
 
+/** One month's labor, parts and other costs in a cost report. */
+export interface LedgerMonth {
+  /** The month as YYYY-MM. */
+  month: string;
+  laborCents: number;
+  partsCents: number;
+  otherCents: number;
+}
+
 /** The work order a cost report row names, as far as the report shows it. */
 export type ReportedOrder = Pick<
   WorkOrder,
@@ -112,7 +121,9 @@ export function ledgerTotals(
  *
  * @param rows - The aircraft's rows of the paying program.
  * @param orders - The work orders the rows name; one missing shows blank.
- * @returns Orders oldest opened first, then by uuid, each with its totals.
+ * @returns Orders oldest opened first, then by uuid, each with its totals;
+ *   and `months`, the period's costs by month, oldest first, a month without
+ *   costs left out.
  */
 export function ledgerCostReport(
   rows: readonly LedgerRow[],
@@ -134,5 +145,28 @@ export function ledgerCostReport(
       x.dateOpened.localeCompare(y.dateOpened) ||
       x.workOrderUuid.localeCompare(y.workOrderUuid),
   );
-  return { period, orders: lines, ...ledgerTotals(dated) };
+  return {
+    period,
+    orders: lines,
+    months: monthsOf(dated),
+    ...ledgerTotals(dated),
+  };
+}
+
+function monthsOf(rows: readonly LedgerRow[]): LedgerMonth[] {
+  const months = new Map<string, LedgerMonth>();
+  for (const r of rows) {
+    const month = r.date.slice(0, "YYYY-MM".length);
+    const sum = months.get(month) ?? {
+      month,
+      laborCents: 0,
+      partsCents: 0,
+      otherCents: 0,
+    };
+    sum.laborCents += r.laborCents;
+    sum.partsCents += r.partsCents;
+    sum.otherCents += r.otherCents;
+    months.set(month, sum);
+  }
+  return [...months.values()].sort((x, y) => x.month.localeCompare(y.month));
 }

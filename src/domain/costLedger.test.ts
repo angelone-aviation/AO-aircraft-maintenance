@@ -1,9 +1,10 @@
 /**
  * Responsibility: Pins the cost ledger's rows (ADR-0013, stage S4): a work
  *   order's days sum to its costs over any period at the prices its records
- *   fix, and the cost report its rows give.
+ *   fix, and the cost report its rows give, as the Costs screen shows it.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain (costs, costs/ledger, partsRequests, taskCards,
+ * Dependencies: src/domain (costs, costs/ledger, costs/costReport,
+ *   partsRequests, taskCards,
  *   workOrders, management, model), src/data/demo.ts.
  */
 import { describe, expect, it } from "vitest";
@@ -14,6 +15,14 @@ import {
   workOrderLedger,
   type LedgerRow,
 } from "./costs/ledger";
+import {
+  assertCostReportReader,
+  costReportView,
+  ledgerReportCsvRows,
+  periodBudgets,
+  snapshotCostReport,
+} from "./costs/costReport";
+import { Rejection } from "./rejection";
 import { costRecordSchema, workOrderCosts, type Period } from "./costs";
 import { partsRequestSchema, requestDraftSchema } from "./partsRequests";
 import { taskCardDefaults, taskCardSchema } from "./taskCards";
@@ -125,6 +134,109 @@ describe("the cost report from ledger rows", () => {
     ]);
     expect(report.totalCents).toBe(1020);
     expect(report.laborSeconds).toBe(240);
+  });
+});
+
+describe("the Costs screen's report from the ledger", () => {
+  const YEAR: Period = { from: "2026-01-01", to: "2026-12-31" };
+  const day = (
+    workOrderUuid: string,
+    date: string,
+    money: Partial<LedgerRow>,
+  ): LedgerRow => ({
+    workOrderUuid,
+    date,
+    laborSeconds: 0,
+    laborCents: 0,
+    partsCents: 0,
+    otherCents: 0,
+    ...money,
+  });
+  const rows = [
+    day("a", "2026-01-05", { laborSeconds: 3600, laborCents: 100 }),
+    day("a", "2026-01-20", { partsCents: 50 }),
+    day("b", "2026-03-02", { otherCents: 25 }),
+    day("b", "2025-12-31", { otherCents: 999 }),
+  ];
+
+  it("sums the period's rows by month, oldest first, months without costs left out", () => {
+    expect(ledgerCostReport(rows, [], YEAR).months).toEqual([
+      { month: "2026-01", laborCents: 100, partsCents: 50, otherCents: 0 },
+      { month: "2026-03", laborCents: 0, partsCents: 0, otherCents: 25 },
+    ]);
+  });
+
+  it("lists the aircraft's budgets for the years a period touches, by year", () => {
+    const { s, order } = fixture();
+    const budget = (year: number, aircraftUuid = order.aircraftUuid) =>
+      costRecordSchema.parse({
+        uuid: `budget-${year}-${aircraftUuid}`,
+        version: 1,
+        programUuid: PROGRAM,
+        kind: "budget",
+        aircraftUuid,
+        year,
+        amountCents: year,
+      });
+    const costs = [
+      ...(s.costs ?? []),
+      budget(2027),
+      budget(2025),
+      budget(2024),
+      budget(2025, "other"),
+    ];
+    const period = { from: "2025-06-01", to: "2027-01-31" };
+    expect(periodBudgets(costs, order.aircraftUuid, period)).toEqual([
+      { year: 2025, amountCents: 2025 },
+      { year: 2027, amountCents: 2027 },
+    ]);
+  });
+
+  it("adds flight hours, cost per flight hour and CSV rows", () => {
+    const report = { ...ledgerCostReport(rows, [], YEAR), budgets: [] };
+    const view = costReportView(report, 7200);
+    expect(view).toMatchObject({ flightSeconds: 7200, costPerHourCents: 88 });
+    expect(costReportView(report, 0).costPerHourCents).toBeUndefined();
+    const [first, , total] = ledgerReportCsvRows(view);
+    expect(first).toMatchObject({ "Labor hours": 1, Labor: 1, Parts: 0.5 });
+    expect(total).toMatchObject({
+      "Work order": "Total",
+      Status: "2026-01-01 to 2026-12-31",
+      Total: 1.75,
+      "Flight hours": 2,
+      "Cost per flight hour": 0.88,
+    });
+  });
+
+  it("lets only a program administrator read an aircraft the program shows", () => {
+    const { s, order } = fixture();
+    expect(() => assertCostReportReader(s, order.aircraftUuid)).not.toThrow();
+    expect(() => assertCostReportReader(s, "elsewhere")).toThrow(
+      new Rejection("History not found."),
+    );
+    const mechanic = {
+      ...s,
+      user: { ...s.user, isAdmin: false, groupIds: [] },
+    };
+    expect(() => assertCostReportReader(mechanic, order.aircraftUuid)).toThrow(
+      new Rejection("Flight Program administrator required."),
+    );
+  });
+
+  it("builds the report from a snapshot as the server sums its ledger rows", () => {
+    const { s, order } = fixture();
+    const ledger = workOrderLedger(s, order).map((d) => ({
+      ...d,
+      workOrderUuid: order.uuid,
+    }));
+    const request = { aircraftUuid: order.aircraftUuid, ...YEAR };
+    expect(snapshotCostReport(s, request)).toEqual({
+      ...ledgerCostReport(ledger, [order], YEAR),
+      budgets: periodBudgets(s.costs ?? [], order.aircraftUuid, YEAR),
+    });
+    expect(() =>
+      snapshotCostReport(s, { ...request, from: "2027-01-01" }),
+    ).toThrow("Choose a start date on or before the end date.");
   });
 });
 

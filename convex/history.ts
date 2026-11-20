@@ -28,8 +28,12 @@ import { exposeRejections } from "./userErrors";
 import { ledgerRowsOf } from "./costLedger";
 import { budgetAndSettingsDocs, workOrderDocsByUuid } from "./workingSet";
 import { ledgerCostReport } from "../src/domain/costs/ledger";
-import { periodFor, type Period } from "../src/domain/costs/period";
-import type { CostRecord } from "../src/domain/costs/records";
+import { periodFor } from "../src/domain/costs/period";
+import {
+  assertCostReportReader,
+  COST_REPORT_ADMINS_ONLY,
+  periodBudgets,
+} from "../src/domain/costs/costReport";
 import {
   compareHistoryPositions,
   emptyHistoryRecords,
@@ -57,11 +61,7 @@ import {
   type FlightRange,
   type WorkOrderHistory,
 } from "../src/domain/historyReads";
-import {
-  activeProgram,
-  programPermission,
-  scopedSnapshot,
-} from "../src/domain/programs";
+import { activeProgram, scopedSnapshot } from "../src/domain/programs";
 import { can, type Member, type Snapshot } from "../src/domain/model";
 import type { WorkOrder } from "../src/domain/workOrders";
 import { HISTORY_NOT_FOUND } from "../src/domain/auditHistory";
@@ -337,10 +337,8 @@ export const costReport = query({
   handler: async (ctx, args) => {
     const state = await checkContext(ctx, args.programUuid);
     const program = activeProgram(state);
-    if (!program || !programPermission(state, "admin"))
-      throw new ConvexError("Flight Program administrator required.");
-    if (!readableAircraft(state).has(args.aircraftUuid))
-      throw new ConvexError(HISTORY_NOT_FOUND);
+    if (!program) throw new ConvexError(COST_REPORT_ADMINS_ONLY);
+    exposeRejections(() => assertCostReportReader(state, args.aircraftUuid));
     const period = exposeRejections(() =>
       periodFor("custom", args.to, { from: args.from, to: args.to }),
     );
@@ -353,7 +351,7 @@ export const costReport = query({
     const costs = decode("costs", await budgetAndSettingsDocs(ctx, program));
     return {
       ...ledgerCostReport(rows, decode("workOrders", orders), period),
-      budgets: budgetsIn(costs, args.aircraftUuid, period),
+      budgets: periodBudgets(costs, args.aircraftUuid, period),
     };
   },
 });
@@ -724,19 +722,4 @@ function cursorOf<P extends HistoryPosition>(
   request: PageQuery,
 ): string | null {
   return scan.resume ? historyCursor(scan.resume) : request.cursor;
-}
-
-function budgetsIn(costs: CostRecord[], aircraftUuid: string, period: Period) {
-  const first = Number(period.from.slice(0, 4));
-  const last = Number(period.to.slice(0, 4));
-  return costs
-    .flatMap((r) =>
-      r.kind === "budget" &&
-      r.aircraftUuid === aircraftUuid &&
-      r.year >= first &&
-      r.year <= last
-        ? [{ year: r.year, amountCents: r.amountCents }]
-        : [],
-    )
-    .sort((x, y) => x.year - y.year);
 }

@@ -24,6 +24,27 @@ export function flightSeconds(a: Aircraft, f: Flight) {
 }
 
 /**
+ * The meter seconds an aircraft's accepted flights added in a period, each
+ * matched by the local date it started (the date the Flight log shows).
+ *
+ * @param a - The aircraft, for the meter each flight used.
+ * @param flights - Flights of any aircraft; others are left out.
+ */
+export function periodFlightSeconds(
+  a: Aircraft,
+  flights: readonly Flight[],
+  period: Period,
+): number {
+  return flights
+    .filter(
+      (f) =>
+        f.aircraftUuid === a.uuid &&
+        inPeriod(localDate(Date.parse(f.startTime)), period),
+    )
+    .reduce((n, f) => n + flightSeconds(a, f), 0);
+}
+
+/**
  * An aircraft's maintenance costs and flying over a period.
  *
  * @returns The work orders with costs in the period, oldest opened first; the
@@ -78,6 +99,20 @@ export function budgetStatus(s: Snapshot, aircraftUuid: string, year: number) {
     from: `${year}-01-01`,
     to: `${year}-12-31`,
   });
+  return budgetStatusOf(budgetCents, actualCents);
+}
+
+/**
+ * A spend measured against a budget, as {@link budgetStatus} reports it.
+ *
+ * @param budgetCents - The year's budget; undefined when none is set.
+ * @param actualCents - What was spent in the year, such as the cost
+ *   ledger's total.
+ */
+export function budgetStatusOf(
+  budgetCents: number | undefined,
+  actualCents: number,
+) {
   return {
     budgetCents,
     actualCents,
@@ -135,17 +170,9 @@ type TotalKey =
   | "totalCents"
   | "missingPartCosts";
 
-// Flights are matched to the period by the local date they started.
 function flownSeconds(s: Snapshot, aircraftUuid: string, period: Period) {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid);
-  if (!a) return 0;
-  return s.flights
-    .filter(
-      (f) =>
-        f.aircraftUuid === aircraftUuid &&
-        inPeriod(localDate(Date.parse(f.startTime)), period),
-    )
-    .reduce((n, f) => n + flightSeconds(a, f), 0);
+  return a ? periodFlightSeconds(a, s.flights, period) : 0;
 }
 
 // The "Off" reading is taken at the start of the flight, "On" at its end.

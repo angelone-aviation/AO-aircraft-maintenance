@@ -2,13 +2,12 @@
  * Responsibility: Shapes what the shop screens already show into chart data:
  *   work orders by status, an aircraft's costs by month, and stock lots by
  *   reorder state.
- * Layer: Domain. Pure functions over a snapshot; no I/O, no React.
- * Dependencies: ./model (Snapshot type), ./workOrders (statuses),
- *   ./costs (report type, workOrderCosts), ./management (needsReorder).
+ * Layer: Domain. Pure functions; no I/O, no React.
+ * Dependencies: ./workOrders (statuses), ./costs/costReport (report type),
+ *   ./management (needsReorder).
  */
-import type { Snapshot } from "./model";
 import { workOrderStatuses, type WorkOrder } from "./workOrders";
-import { workOrderCosts, type AircraftCostReport } from "./costs";
+import type { CostReport } from "./costs/costReport";
 import { needsReorder, type Stock } from "./management";
 
 /** A count of work orders in one status. */
@@ -55,38 +54,28 @@ export function workOrderStatusCounts(
 }
 
 /**
- * A cost report's spending split by calendar month.
+ * A cost report's spending by calendar month, for its month chart.
  *
- * @param s - The snapshot the report was built from.
- * @returns One entry per month the period touches, oldest first, priced as
- *   the report prices them, so the months add up to the report's totals.
+ * @param report - The report's period and its months with costs.
+ * @returns One entry per month the period touches, oldest first, a month
+ *   without costs at zero, so the months add up to the report's totals.
  *   Empty when the period spans more than 24 months.
  */
-export function monthlyCosts(
-  s: Snapshot,
-  report: Pick<AircraftCostReport, "period" | "orders">,
+export function ledgerMonths(
+  report: Pick<CostReport, "period" | "months">,
 ): MonthCosts[] {
-  const { from, to } = report.period;
-  const months = monthsBetween(from, to);
+  const months = monthsBetween(report.period.from, report.period.to);
   if (months.length > MAX_CHART_MONTHS) return [];
-  return months.map((month) => {
-    const period = {
-      from: maxDate(from, `${month}-01`),
-      // No month has more than 31 days, and ISO dates compare as text.
-      to: minDate(to, `${month}-31`),
-    };
-    const costs = report.orders.map(({ order }) =>
-      workOrderCosts(s, order, period),
-    );
-    const sum = (key: "laborCents" | "partsCents" | "otherCents") =>
-      costs.reduce((n, c) => n + c[key], 0);
-    return {
-      month,
-      laborCents: sum("laborCents"),
-      partsCents: sum("partsCents"),
-      otherCents: sum("otherCents"),
-    };
-  });
+  const costed = new Map(report.months.map((m) => [m.month, m]));
+  return months.map(
+    (month) =>
+      costed.get(month) ?? {
+        month,
+        laborCents: 0,
+        partsCents: 0,
+        otherCents: 0,
+      },
+  );
 }
 
 /**
@@ -118,6 +107,3 @@ function nextMonth(month: string): string {
   if (number === DECEMBER) return `${year + 1}-01`;
   return `${year}-${String(number + 1).padStart(2, "0")}`;
 }
-
-const maxDate = (a: string, b: string) => (a > b ? a : b);
-const minDate = (a: string, b: string) => (a < b ? a : b);

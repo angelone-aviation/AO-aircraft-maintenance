@@ -2,11 +2,12 @@
  * Responsibility: The Costs page's charts: an aircraft's spending by month
  *   and its split between labor, parts and other costs.
  * Layer: UI. Presentational components; cost rules live in src/domain.
- * Dependencies: src/domain (model, costs, shopCharts), ./charts, ./design.
+ * Dependencies: src/domain (costs, costs/costReport, shopCharts), ./charts,
+ *   ./design.
  */
-import type { Snapshot } from "../domain/model";
-import { formatCents, type AircraftCostReport } from "../domain/costs";
-import { monthlyCosts, type MonthCosts } from "../domain/shopCharts";
+import { formatCents } from "../domain/costs";
+import type { CostReport } from "../domain/costs/costReport";
+import { ledgerMonths, type MonthCosts } from "../domain/shopCharts";
 import { BarChart, Donut } from "./charts";
 import { SectionHeading } from "./design";
 
@@ -21,20 +22,14 @@ const SERIES = [
  * Charts of a cost report: stacked bars of labor, parts and other costs for
  * each month of the period, and a ring of the three totals.
  *
- * @param props.s - The snapshot the report was built from.
+ * @param props.report - The cost ledger's report.
  * @returns Nothing when the report has no costs. The month chart is left out
  *   for a period longer than 24 months and hidden on phones, where the
  *   totals above and the ring carry the same amounts.
  */
-export function CostCharts({
-  s,
-  report,
-}: {
-  s: Snapshot;
-  report: AircraftCostReport;
-}) {
+export function CostCharts({ report }: { report: CostReport }) {
   if (!report.totalCents) return null;
-  const months = monthlyCosts(s, report);
+  const months = ledgerMonths(report);
   return (
     <div className={months.length ? "shop-chart-row" : undefined}>
       {months.length > 0 && <MonthChart months={months} />}

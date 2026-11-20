@@ -44,8 +44,10 @@ export {
 } from "./costs/workOrderCosts";
 export {
   flightSeconds,
+  periodFlightSeconds,
   aircraftCostReport,
   budgetStatus,
+  budgetStatusOf,
   costReportCsvRows,
   type AircraftCostReport,
 } from "./costs/report";

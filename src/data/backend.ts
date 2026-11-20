@@ -76,6 +76,7 @@ import type { POCommand } from "../domain/purchaseOrders";
 import type { ReleaseStatement } from "../domain/releaseStatements";
 import type { RequiredPart } from "../domain/requiredParts";
 import type { HistoryPage, HistoryPageRequest } from "../domain/retention";
+import type { CostReport, CostReportRequest } from "../domain/costs/costReport";
 import type {
   AddressChoices,
   SavedAddress,
@@ -728,6 +729,17 @@ export interface Backend {
    */
   flightsInRange(request: FlightRangeRequest): Promise<FlightRange>;
   /**
+   * Flight Program administrators: an aircraft's work-order costs over a
+   * period, summed from the cost ledger, with its budgets for the period's
+   * years (history.costReport; snapshotCostReport in the demo).
+   *
+   * @param request - The aircraft and the inclusive ISO dates.
+   * @throws "Flight Program administrator required."; "History not found."
+   *   for an aircraft the user may not read; "Choose a start date on or
+   *   before the end date."
+   */
+  costReport(request: CostReportRequest): Promise<CostReport>;
+  /**
    * Lists the keys of the alerts the signed-in user has marked read.
    *
    * @param programUuid - The Flight Program, or undefined outside one.
@@ -1213,6 +1225,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.query(api.history.workOrder, inProgram({ uuid })),
     flightsInRange: (request) =>
       client.query(api.history.flightsInRange, inProgram(request)),
+    costReport: (request) =>
+      client.query(api.history.costReport, inProgram(request)),
     alertReads: (programUuid) =>
       client.query(api.alerts.readKeys, { programUuid }),
     markAlertsRead: (programUuid, keys, all) =>

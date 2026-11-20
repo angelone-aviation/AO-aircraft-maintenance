@@ -82,6 +82,11 @@ const HISTORY_REQUEST = {
   numItems: 25,
 };
 const FLIGHT_RANGE = { aircraftUuid: "aircraft-1", from: 1, to: 2 };
+const COST_RANGE = {
+  aircraftUuid: "aircraft-1",
+  from: "2026-01-01",
+  to: "2026-12-31",
+};
 const TRANSFER = {
   kind: "aircraft" as const,
   uuid: "aircraft-1",
@@ -873,6 +878,13 @@ const CASES: Case[] = [
     kind: "query",
     name: "history:flightsInRange",
     args: { ...FLIGHT_RANGE, programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "costReport",
+    call: (b) => b.costReport(COST_RANGE),
+    kind: "query",
+    name: "history:costReport",
+    args: { ...COST_RANGE, programUuid: ACTIVE_PROGRAM },
   },
   {
     method: "alertReads",

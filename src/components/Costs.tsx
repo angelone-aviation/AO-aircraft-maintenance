@@ -2,9 +2,14 @@
  * Responsibility: The maintenance cost screens: the Costs page with its
  *   period report, budgets and CSV export, and an aircraft's cost summary.
  * Layer: UI. React components; cost rules live in src/domain/costs.ts.
- * Dependencies: @tanstack/react-router, src/data/store.ts, src/domain (model,
- *   programs, csv, costs), ./ui.tsx, ./design.tsx, ./ShopList.tsx,
- *   ./CostCharts.tsx, ./WorkOrderList.tsx, ./NumberInput.tsx.
+ * Dependencies: @tanstack/react-router, src/data (store, costReports),
+ *   src/domain (model, programs, csv, costs, costs/costReport, workOrders),
+ *   ./ui.tsx, ./design.tsx, ./ShopList.tsx, ./CostCharts.tsx,
+ *   ./WorkOrderList.tsx, ./NumberInput.tsx.
+ *
+ * Spending comes from the server's cost ledger (history.costReport, S4), so
+ * these screens and the board total it alike; budgets come from the
+ * workspace, which keeps them all.
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -15,8 +20,10 @@ import {
   DownloadSimple,
   GearSix,
   WarningCircle,
+  WifiSlash,
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
+import { useCostReport, type LoadedCostReport } from "../data/costReports";
 import {
   hours,
   localDate,
@@ -26,17 +33,20 @@ import {
 import { programPermission } from "../domain/programs";
 import { toCsv } from "../domain/csv";
 import {
-  aircraftCostReport,
-  budgetStatus,
-  costReportCsvRows,
+  budgetStatusOf,
   formatCents,
   formatLaborHours,
   laborRate,
   parseCents,
   periodFor,
-  type AircraftCostReport,
   type Period,
 } from "../domain/costs";
+import { findBudget } from "../domain/costs/workOrderCosts";
+import { workOrderStatuses } from "../domain/workOrders";
+import {
+  ledgerReportCsvRows,
+  type CostReportView,
+} from "../domain/costs/costReport";
 import { AsyncForm, Field, download, errorText, value } from "./ui";
 import { NumberInput } from "./NumberInput";
 import {
@@ -64,16 +74,16 @@ const BUDGET_YEAR_MAX = 2200;
 const CENTS_PER_DOLLAR = 100;
 
 type PeriodKind = "year" | "12m" | "custom";
-type CostLine = AircraftCostReport["orders"][number];
-type BudgetStatus = ReturnType<typeof budgetStatus>;
+type CostLine = CostReportView["orders"][number];
+type BudgetStatus = ReturnType<typeof budgetStatusOf>;
 
 /**
- * The Costs page: an aircraft's labor, parts and other work-order costs for
- * this year, the last 12 months or a custom range, against flight hours and
- * its annual budget, with a CSV export.
+ * The Costs page: an aircraft's labor, parts and other work-order costs from
+ * the cost ledger for this year, the last 12 months or a custom range,
+ * against flight hours and its annual budget, with a CSV export.
  *
  * @returns Nothing before the snapshot loads, and an access notice for anyone
- *   but a Flight Program administrator.
+ *   but a Flight Program administrator. The report needs a connection.
  */
 export function CostsPage() {
   const { snapshot: s } = useWorkspace();
@@ -82,18 +92,22 @@ export function CostsPage() {
   );
   const [kind, setKind] = useState<PeriodKind>("year");
   const [custom, setCustom] = useState<Partial<Period>>({});
-  if (!s) return null;
-  if (!programPermission(s, "admin")) return <AdministratorsOnly />;
+  const admin = !!s && programPermission(s, "admin");
   const aircraft =
-    s.aircraft.find((a) => a.uuid === aircraftUuid) ?? s.aircraft[0];
-  const { report, periodError } = buildReport(s, aircraft, kind, custom);
-  const period = { kind, custom, onKind: setKind, onCustom: setCustom };
+    s?.aircraft.find((a) => a.uuid === aircraftUuid) ?? s?.aircraft[0];
+  const { period, periodError } = choosePeriod(kind, custom);
+  const loaded = useCostReport(admin ? aircraft : undefined, period);
+  if (!s) return null;
+  if (!admin) return <AdministratorsOnly />;
+  const { report } = loaded;
   return (
     <>
       <CostsHeader aircraft={aircraft} report={report} />
       <Toolbar className="shop-toolbar">
         <AircraftPicker s={s} aircraft={aircraft} onChange={setAircraftUuid} />
-        <PeriodPicker {...period} />
+        <PeriodPicker
+          {...{ kind, custom, onKind: setKind, onCustom: setCustom }}
+        />
       </Toolbar>
       {periodError && (
         <NoticeBar tone="danger" icon={WarningCircle} role="alert">
@@ -105,6 +119,7 @@ export function CostsPage() {
           Add an aircraft to track its costs.
         </EmptyState>
       )}
+      {aircraft && period && <ReportState loaded={loaded} />}
       {report && <CostReport s={s} aircraft={aircraft!} report={report} />}
       <LaborRateNotice rate={laborRate(s)} />
     </>
@@ -114,19 +129,29 @@ export function CostsPage() {
 /**
  * An aircraft's spend against its budget for one calendar year.
  *
- * @returns A note with the actual spend when no budget is set; otherwise the
- *   spend, budget and percent used, the amount over or remaining, and a bar.
+ * @param props.budgetCents - The year's budget; undefined when none is set.
+ * @param props.actualCents - The year's spend from the cost ledger;
+ *   undefined until it loads.
+ * @returns A note while the spend loads, or with the spend when no budget
+ *   is set; otherwise the spend, budget and percent used, the amount over or
+ *   remaining, and a bar.
  */
 export function BudgetBar({
-  s,
-  aircraftUuid,
   year,
+  budgetCents,
+  actualCents,
 }: {
-  s: Snapshot;
-  aircraftUuid: string;
   year: number;
+  budgetCents?: number;
+  actualCents?: number;
 }) {
-  const status = budgetStatus(s, aircraftUuid, year);
+  if (actualCents === undefined)
+    return (
+      <p className="muted">
+        The {year} spend loads from the cost ledger while connected.
+      </p>
+    );
+  const status = budgetStatusOf(budgetCents, actualCents);
   if (status.budgetCents === undefined)
     return (
       <p className="muted">
@@ -156,8 +181,8 @@ export function BudgetBar({
 }
 
 /**
- * This year's maintenance costs for one aircraft, with its budget bar and a
- * link to the cost report.
+ * This year's maintenance costs for one aircraft, from the cost ledger, with
+ * its budget bar and a link to the cost report.
  *
  * @returns Nothing before the snapshot loads, or for anyone but a Flight
  *   Program administrator.
@@ -168,43 +193,70 @@ export function AircraftCostSummary({
   aircraftUuid: string;
 }) {
   const { snapshot: s } = useWorkspace();
-  if (!s || !programPermission(s, "admin")) return null;
+  const admin = !!s && programPermission(s, "admin");
+  const aircraft = s?.aircraft.find((a) => a.uuid === aircraftUuid);
   const year = Number(localDate().slice(0, 4));
-  const report = aircraftCostReport(
-    s,
-    aircraftUuid,
+  const loaded = useCostReport(
+    admin ? aircraft : undefined,
     periodFor("year", localDate()),
   );
+  if (!s || !admin) return null;
+  const { report } = loaded;
   return (
     <section className="panel" aria-labelledby={`cost-summary-${aircraftUuid}`}>
       <h3 id={`cost-summary-${aircraftUuid}`}>{year} maintenance costs</h3>
-      <CostTotals report={report} />
-      <BudgetBar s={s} aircraftUuid={aircraftUuid} year={year} />
+      {report ? (
+        <CostTotals report={report} />
+      ) : (
+        <ReportState loaded={loaded} />
+      )}
+      <BudgetBar
+        year={year}
+        budgetCents={findBudget(s, aircraftUuid, year)?.amountCents}
+        actualCents={report?.totalCents}
+      />
       <Link to="/costs">Open cost report</Link>
     </section>
   );
 }
 
-function buildReport(
-  s: Snapshot,
-  aircraft: Aircraft | undefined,
-  kind: PeriodKind,
-  custom: Partial<Period>,
-) {
-  let period: Period | undefined;
-  let periodError = "";
+// periodFor refuses a custom range that is incomplete or reversed; the
+// screen shows why instead of a report.
+function choosePeriod(kind: PeriodKind, custom: Partial<Period>) {
   try {
-    period = periodFor(kind, localDate(), custom);
+    return { period: periodFor(kind, localDate(), custom), periodError: "" };
   } catch (e) {
-    // periodFor refuses a custom range that is incomplete or reversed.
-    periodError = errorText(e, "Choose a valid period.");
+    return {
+      period: undefined,
+      periodError: errorText(e, "Choose a valid period."),
+    };
   }
-  const report =
-    aircraft && period ? aircraftCostReport(s, aircraft.uuid, period) : null;
-  return { report, periodError };
 }
 
-function formatCostPerHour(report: AircraftCostReport) {
+// What stands in for the report until it loads, when it cannot, and why.
+function ReportState({ loaded }: { loaded: LoadedCostReport }) {
+  if (loaded.error)
+    return (
+      <NoticeBar tone="danger" icon={WarningCircle} role="alert">
+        {loaded.error}
+      </NoticeBar>
+    );
+  if (loaded.report) return null;
+  if (loaded.offline)
+    return (
+      <NoticeBar tone="warn" icon={WifiSlash}>
+        The cost report needs a connection. It totals the server&apos;s cost
+        ledger.
+      </NoticeBar>
+    );
+  return loaded.loading ? (
+    <p role="status" className="muted">
+      Loading the cost report…
+    </p>
+  ) : null;
+}
+
+function formatCostPerHour(report: CostReportView) {
   return report.costPerHourCents === undefined
     ? "—"
     : formatCents(report.costPerHourCents);
@@ -226,7 +278,7 @@ function CostsHeader({
   report,
 }: {
   aircraft?: Aircraft;
-  report: AircraftCostReport | null;
+  report?: CostReportView;
 }) {
   return (
     <PageHeader
@@ -243,7 +295,7 @@ function ExportButton({
   report,
 }: {
   aircraft: Aircraft;
-  report: AircraftCostReport;
+  report: CostReportView;
 }) {
   const { from, to } = report.period;
   return (
@@ -253,7 +305,7 @@ function ExportButton({
       onClick={() =>
         download(
           `${aircraft.registration}-costs-${from}-${to}.csv`,
-          toCsv(costReportCsvRows(report)),
+          toCsv(ledgerReportCsvRows(report)),
           "text/csv",
         )
       }
@@ -357,12 +409,12 @@ function CostReport({
 }: {
   s: Snapshot;
   aircraft: Aircraft;
-  report: AircraftCostReport;
+  report: CostReportView;
 }) {
   return (
     <>
       <CostStats report={report} />
-      <CostCharts s={s} report={report} />
+      <CostCharts report={report} />
       <ShopTableCard
         label="Work-order costs"
         className="shop-compact"
@@ -381,13 +433,13 @@ function CostReport({
         )}
       </ShopTableCard>
       <div className="shop-card-grid">
-        <BudgetPanel s={s} aircraftUuid={aircraft.uuid} />
+        <BudgetPanel s={s} aircraft={aircraft} />
       </div>
     </>
   );
 }
 
-function CostStats({ report }: { report: AircraftCostReport }) {
+function CostStats({ report }: { report: CostReportView }) {
   return (
     <StatsStrip className="shop-stats shop-cost-stats">
       <ShopStat
@@ -398,11 +450,7 @@ function CostStats({ report }: { report: AircraftCostReport }) {
       <ShopStat
         label="Parts"
         value={formatCents(report.partsCents)}
-        foot={
-          report.missingPartCosts
-            ? `${report.missingPartCosts} part(s) without a unit cost`
-            : "Issued stock at unit cost"
-        }
+        foot="Issued parts at the price each issue recorded"
       />
       <ShopStat label="Other" value={formatCents(report.otherCents)} />
       <ShopStat
@@ -434,42 +482,38 @@ function CostTable({ lines }: { lines: CostLine[] }) {
       </thead>
       <tbody>
         {lines.map((line) => (
-          <CostRow key={line.order.uuid} line={line} />
+          <CostRow key={line.workOrderUuid} line={line} />
         ))}
       </tbody>
     </table>
   );
 }
 
-function CostRow({ line: { order, costs } }: { line: CostLine }) {
-  const completed = order.status === "completed";
+function CostRow({ line }: { line: CostLine }) {
+  const status = workOrderStatuses.find((x) => x === line.status);
   return (
     <tr>
       <td className="shop-wide">
         <ShopLead
           icon={CurrencyCircleDollar}
-          tone={completed ? "good" : "blue"}
-          title={order.number}
-          sub={order.scope}
+          tone={status === "completed" ? "good" : "blue"}
+          title={line.number || "Work order"}
         />
       </td>
       <td className="shop-nowrap" data-label="Opened">
-        {order.dateOpened}
+        {line.dateOpened}
       </td>
       <td data-label="Status">
-        <WorkOrderStatusPill status={order.status} />
+        {status && <WorkOrderStatusPill status={status} />}
       </td>
       <NumberCell label="Labor h">
-        {formatLaborHours(costs.laborSeconds)}
+        {formatLaborHours(line.laborSeconds)}
       </NumberCell>
-      <NumberCell label="Labor">{formatCents(costs.laborCents)}</NumberCell>
-      <NumberCell label="Parts">
-        {formatCents(costs.partsCents)}
-        {!!costs.missingPartCosts && <small>Unit cost missing</small>}
-      </NumberCell>
-      <NumberCell label="Other">{formatCents(costs.otherCents)}</NumberCell>
+      <NumberCell label="Labor">{formatCents(line.laborCents)}</NumberCell>
+      <NumberCell label="Parts">{formatCents(line.partsCents)}</NumberCell>
+      <NumberCell label="Other">{formatCents(line.otherCents)}</NumberCell>
       <NumberCell label="Total">
-        <strong>{formatCents(costs.totalCents)}</strong>
+        <strong>{formatCents(line.totalCents)}</strong>
       </NumberCell>
     </tr>
   );
@@ -517,15 +561,13 @@ function BudgetPill({ status }: { status: BudgetStatus }) {
   );
 }
 
-function BudgetPanel({
-  s,
-  aircraftUuid,
-}: {
-  s: Snapshot;
-  aircraftUuid: string;
-}) {
+function BudgetPanel({ s, aircraft }: { s: Snapshot; aircraft: Aircraft }) {
   const [year, setYear] = useState(Number(localDate().slice(0, 4)));
-  const current = budgetStatus(s, aircraftUuid, year).budgetCents;
+  const spend = useCostReport(aircraft, {
+    from: `${year}-01-01`,
+    to: `${year}-12-31`,
+  });
+  const current = findBudget(s, aircraft.uuid, year)?.amountCents;
   return (
     <section className="shop-card" aria-labelledby="budget-heading">
       <h2 id="budget-heading">Annual budget</h2>
@@ -537,12 +579,16 @@ function BudgetPanel({
           onValue={setYear}
         />
       </Field>
-      <BudgetBar s={s} aircraftUuid={aircraftUuid} year={year} />
+      <BudgetBar
+        year={year}
+        budgetCents={current}
+        actualCents={spend.report?.totalCents}
+      />
       <BudgetForm
         // Remounted when the aircraft, year or saved budget changes, so the
         // amount shows the stored value.
-        key={`${aircraftUuid}:${year}:${current}`}
-        aircraftUuid={aircraftUuid}
+        key={`${aircraft.uuid}:${year}:${current}`}
+        aircraftUuid={aircraft.uuid}
         year={year}
         current={current}
       />
@@ -587,7 +633,7 @@ function BudgetForm({
   );
 }
 
-function CostTotals({ report }: { report: AircraftCostReport }) {
+function CostTotals({ report }: { report: CostReportView }) {
   return (
     <dl className="cost-totals">
       <div>
