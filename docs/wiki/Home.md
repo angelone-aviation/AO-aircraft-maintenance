@@ -14,7 +14,7 @@ summaries.
 [What everyone needs to know](../handbook/1-start-here/must-know.md) ·
 [Regular checklists](../handbook/3-running-it/checklists.md) (daily to yearly)
 
-![The Overview: fleet counts and three demo aircraft](images/overview.png)
+![The Overview: fleet counts and aircraft cards](images/overview.png)
 
 ## Sign in
 
@@ -59,7 +59,7 @@ Your role shows under your name at the bottom of the sidebar.
 
 The sidebar groups screens under **Fly**, **Maintain** and **Manage**. On a
 phone, the bottom bar has **Overview**, **Flight log**, **Log flight**,
-**Inspections** and **More**.
+**Inspections** (not in the pilot view) and **More**.
 
 | Screen or feature                                 | Page                                                            |
 | ------------------------------------------------- | --------------------------------------------------------------- |

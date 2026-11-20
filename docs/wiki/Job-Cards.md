@@ -37,9 +37,9 @@ Later template edits change future copies only.
 
 1. Open the card from its work order, or **New job card**.
 2. Fill in the title, description, ATA chapter and **Maintenance-data
-   reference** (or a **Reference library manual** and page).
-3. Change **Task status** from draft to **ready** or **in progress** and choose
-   **Save job card**.
+   reference** (or a **Reference library manual** and page), then **Save job
+   card**. A new card saves as a draft.
+3. Change **Task status** to **ready** or **in progress** and save again.
 4. Under **Execution**, enter **Actual work performed** and a **Completion
    date** (today or earlier). Save.
 5. Record parts under **Parts used and component changes**: a **Non-stock

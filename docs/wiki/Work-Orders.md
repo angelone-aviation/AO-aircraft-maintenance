@@ -27,8 +27,8 @@ delayed for parts.
 1. Choose **Open work order**.
 2. Choose the **Aircraft**. Leave **Work order number** blank to get the next
    number.
-3. Enter **Date opened**, **Supervisor**, **Priority** (routine, high, urgent)
-   and the scope.
+3. Enter **Date opened**, **Supervisor** and **Priority** (routine, high,
+   urgent).
 4. Under **Requested work**, add work:
    - **Existing work item**: an inspection, problem report, component service
      requirement or reviewed AD action, then **Add selected work**;

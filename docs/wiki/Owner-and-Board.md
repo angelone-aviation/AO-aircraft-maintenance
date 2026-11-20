@@ -39,7 +39,7 @@ The owner portal does not show flights, logbook photos or the change log.
 
 ## Board view
 
-![The board view: fleet tiles, aircraft and items due](images/board-view.png)
+![The board view: fleet tiles and aircraft](images/board-view.png)
 
 | Section                 | Shows                                                                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -60,9 +60,6 @@ flights, people, files or problem descriptions.
 - The quarter and year for spending follow the program's records time zone.
 
 ## Your regular checks
-
-See the "Owners and board" section of the
-[checklists](../handbook/3-running-it/checklists.md).
 
 1. Before a board meeting: download the board summary PDF.
 2. Monthly (owners): open the owner portal and check **Next due** and **Open

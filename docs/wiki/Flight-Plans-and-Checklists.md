@@ -23,7 +23,7 @@ The PDF itself is not stored, only the fields. Times are UTC.
 Plans are listed by departure time. Each row adds the plan's estimated time to
 the aircraft's total and checks inspections, component limits, open problems
 and the profile status. A limit the queue would reach reads "Due before
-further Flight." These are estimates and change no totals.
+further Flight" after its name. These are estimates and change no totals.
 
 ### Log or remove a plan
 

@@ -83,12 +83,12 @@ administrator decides. Nothing is lost. The reasons, checked in this order:
 
 | Reason shown                                                                                                                             | Usual cause                                             |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| "The aircraft was grounded during this flight."                                                                                          | A grounding problem was reported while flying           |
 | "Aircraft totals changed after this entry was started."                                                                                  | Someone else logged a flight first                      |
 | "Flight predates an aircraft counter change and requires chronology review."                                                             | The aircraft's totals were corrected after this flight  |
 | "Backdated or duplicate-time flight requires a chronology review."                                                                       | The start time is before the aircraft's latest flight   |
 | "Hobbs reading is lower than the current counter." (or Tach, Flight time log)                                                            | A typing slip, or a missed flight                       |
 | "Hobbs reading is N hours past the current counter, longer than any single flight. Check for a missed decimal point or a decimal comma." | More than 24 hours on a meter: usually 23425 for 2342.5 |
-| "The aircraft was grounded during this flight."                                                                                          | A grounding problem was reported while flying           |
 
 Several flights logged offline on one aircraft are queued in order, so the
 later legs are not held. If an earlier leg is held, the later legs are held
@@ -104,7 +104,8 @@ Flight Program administrators only.
 3. Correct the readings if needed.
 4. Under **Review decision**, choose **Accept corrected entry and recalculate
    totals** or **Reject entry and exclude it from totals**.
-5. Write an **Explanation** (at least 5 characters) and save.
+5. Write an **Explanation** (at least 5 characters) and choose **Record
+   review**.
 
 Both decisions keep the original values and the explanation in Change history.
 Accepting rebuilds the totals and later flights.

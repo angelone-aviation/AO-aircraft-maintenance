@@ -11,7 +11,7 @@ entry by entry. It needs a connection.
 1. Open **Change history → Summary**.
 2. Choose **Last 7 days** (the default), **Last 30 days** or **Custom** dates.
    Days are your own device's days.
-3. Read the two tables below.
+3. Read **Changes by person** and **Notable events**.
 4. Follow a notable event's link to its screen to check it.
 5. **Export CSV** saves the table as `change-summary-<from>-to-<to>.csv`.
 

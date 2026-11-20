@@ -60,7 +60,7 @@ opens with the fleet summary.
 
 ## Your regular checks
 
-See the "Administrator" sections of the
+See the "Daily", "Weekly" and "Monthly" sections of the
 [checklists](../handbook/3-running-it/checklists.md).
 
 1. Daily: **Flight log** filtered to **Needs review**; review each held

@@ -1,8 +1,8 @@
 # Pilot guide
 
 You log flights, report problems and read checklists and manuals. All of it
-works without a connection. See the [rules for flights](Flight-Log.md#rules)
-and [Offline](Offline.md).
+works without a connection (manuals once kept on the device). See the
+[rules for flights](Flight-Log.md#rules) and [Offline](Offline.md).
 
 ## What you see
 
@@ -74,7 +74,7 @@ See [Discrepancies](Discrepancies.md).
 
 ## Your regular checks
 
-See the "Before each flight" section of the
+See the "Daily" section of the
 [checklists](../handbook/3-running-it/checklists.md).
 
 1. Before each flight: the aircraft reads **OK to fly**; the starting meters

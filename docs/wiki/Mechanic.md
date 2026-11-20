@@ -53,7 +53,7 @@ See [Job cards](Job-Cards.md#who-can-sign).
 
 ## Your regular checks
 
-See the "Due items, weekly" section of the
+See the "Daily" and "Weekly" sections of the
 [checklists](../handbook/3-running-it/checklists.md).
 
 1. Weekly: **Planning** (next 30 days) and the **Maintenance calendar**.

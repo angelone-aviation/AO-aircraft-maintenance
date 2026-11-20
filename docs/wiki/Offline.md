@@ -118,5 +118,5 @@ it. An unsaved form is lost, so save first.
 ## Install for offline use
 
 Install the app ([Home](Home.md#install-it-on-a-phone)) and open it online once
-so it can cache itself. The notice "App installed for offline use." confirms
-it.
+so it can save itself for offline use. The notice "App installed for offline
+use." confirms it.

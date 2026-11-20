@@ -10,7 +10,7 @@ The rule for due soon and overdue is in
 
 ## Planning
 
-![Planning: items due and the projected workload](images/planning.png)
+![Planning: counts and the projected workload](images/planning.png)
 
 Planning lists inspections, component requirements and AD actions across the
 fleet, by whichever limit comes first.
@@ -59,5 +59,5 @@ first. See [Overview and aircraft](Overview-and-Aircraft.md).
 ## Flight plan projections
 
 [Flight plans](Flight-Plans-and-Checklists.md#read-the-queue) add queued
-flights' estimated time and warn "Due before further Flight." when a plan
-would reach a limit.
+flights' estimated time and warn "Due before further Flight" when a plan would
+reach a limit.

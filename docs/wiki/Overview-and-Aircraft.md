@@ -4,7 +4,7 @@ The **Overview** is the first screen: fleet counts, each aircraft's status and
 what comes due. The **Aircraft** page (under Manage) lists the aircraft with
 their meters and profile.
 
-![The Overview with three demo aircraft](images/overview.png)
+![The Overview: fleet counts and aircraft cards](images/overview.png)
 
 ## The Overview
 
@@ -90,8 +90,8 @@ status and its status. Actions:
 | **Manuals**            | Opens the aircraft's manuals ([Reference library](Reference-Library.md))               | Everyone who reads it |
 | **Engine trends**      | Shows engine-monitor file summaries against limits; maintenance imports them           | Everyone who reads it |
 
-Setup chips such as "Components missing" or "ADs not reviewed" open the setup
-step that fills them.
+Administrators see setup chips such as "Components missing" or "ADs not
+reviewed"; each opens the setup step that fills it.
 
 ### Time source and total time
 
