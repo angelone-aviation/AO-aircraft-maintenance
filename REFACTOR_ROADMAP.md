@@ -61,37 +61,37 @@ Raised by the audit; not batches. Update as batches find more.
 3. **The demo's Conflict review and discrepancy resolution lack server rules** (administrator check, crew checks, `validateFlight`, the `resolve` permission, the 5,000-character limit). T11 and T2 fix them.
 4. **Guided flight skips the tenths-of-an-hour rule** (`GuidedFlight.tsx:451-456`). T7.
 5. **ADR-0006's real-Convex browser tests are not in the automated checks.** `tests/e2e/live.spec.ts` has two tests against a real local Convex backend (sign-in, offline reload, discrepancy sync, offline sign-out), but it skips itself unless `npm run test:local` has provisioned a local administrator, so CI runs the demo build only. Logging a flight and closing a work order are not covered.
-6. **Owner-only items in `.claude/hooks/`** (agents may not edit it): `check-standards.mjs` nests three levels in one function; the suppression check has no rule for `shellcheck disable`; the hook reminder still lists `improve-codebase-architecture`, which only a person can start.
+6. **Owner-only items in `.claude/hooks/`** (agents may not edit it): `check-standards.mjs` nests three levels in one function; the suppression check has no rule for `shellcheck disable`; the hook reminder still lists `improve-codebase-architecture`, which only a person can start. **Update 2026-11-20:** the repository's last `shellcheck disable` is gone (commit dca6fca), ready for the D23 patch that adds the rule.
 7. **The architecture report's counts are out of date** (`docs/architecture/README.md`): 54 specs, 52 convex-test suites, about 91 domain modules and 90 component files today.
-8. **Address lookup refuses valid stored addresses** (Batch 1). `addressLookupSchema` (`src/domain/addressLookup.ts:4-8`) caps the postal code at 100 characters and the country at 150, but `addressSchema` allows 300, so `lookupInput` throws on an address the app has already saved.
-9. **ZIP and Canadian postal codes are checked untrimmed** (Batch 1). `addressIssues` refuses " 20500" although the schema trims it on save. A characterization test in `src/domain/addresses.test.ts` pins this; fix it as a small bug fix in its own commit, updating that test.
-10. **The phone message promises more than the check** (Batch 1). It asks for an area or country code, but any 7 digits pass. A product decision: tighten the check or change the message.
+8. **Address lookup refuses valid stored addresses** (Batch 1). `addressLookupSchema` (`src/domain/addressLookup.ts:4-8`) caps the postal code at 100 characters and the country at 150, but `addressSchema` allows 300, so `lookupInput` throws on an address the app has already saved. **Fixed 2026-11-19 (commit b958c3e).**
+9. **ZIP and Canadian postal codes are checked untrimmed** (Batch 1). `addressIssues` refuses " 20500" although the schema trims it on save. A characterization test in `src/domain/addresses.test.ts` pins this; fix it as a small bug fix in its own commit, updating that test. **Fixed 2026-11-19 (commit 5c53457).**
+10. **The phone message promises more than the check** (Batch 1). It asks for an area or country code, but any 7 digits pass. A product decision: tighten the check or change the message. **Fixed 2026-11-19 (commit a241bb6):** the message states the rule, at least seven digits.
 11. **The street length limit is redundant** (Batch 1). The 2,000-character street limit never decides on its own: the 1,900-character combined cap already rejects a street over about 1,890 characters.
 12. **`addressFromForm` is form shaping in the domain** (Batch 1). It reads `FormData` for `Fleet.tsx` and `Management.tsx` only, and the input name `"addressDetails"` is written separately in `Fleet.tsx:799` and `Management.tsx:1646`. It belongs with the components (CONTEXT.md §5).
 13. **`src/domain/addresses.test.ts` also holds the address-lookup tests** (Batch 1): `lookupInput`, `fetchAddressSuggestions`, `parseAddressSuggestions`. Move them to a new `src/domain/addressLookup.test.ts` when that module's batch (Batch 44) runs.
 14. **Production started empty on 2026-11-03; no data was migrated** (README "Deployment", `docs/go-live-checklist.md`). Code that only migrates or repairs data written by earlier versions may now be removable; T21 inventories it.
 
-15. **Logbook PDFs drop text after a tab** (`src/data/logbookPdf.ts`; jsPDF writes only the characters before a tab), and a lone carriage return joins two words. Pinned by a characterization test; fixing it (expand tabs to spaces) changes the document a mechanic signs, so it needs a yes.
+15. **Logbook PDFs drop text after a tab** (`src/data/logbookPdf.ts`; jsPDF writes only the characters before a tab), and a lone carriage return joins two words. Pinned by a characterization test; fixing it (expand tabs to spaces) changes the document a mechanic signs, so it needs a yes. **Fixed in part 2026-11-19 (commit e466087):** a tab prints as one space; a lone carriage return still joins two words.
 16. **Expected refusals still show "Server Error" in production** until each throw site uses `Rejection` (domain) or `ConvexError` (server). Batch 415 covers the server's own checks; lanes convert domain refusals as part of each file's standards pass (see the lane brief), and T10 b3+ covers what remains.
 17. **`deleteBlobIfUnused` checks 5 tables, `STORAGE_REFERENCES` lists 10** (`convex/attachments.ts`): a blob shared with an unchecked table could be deleted while in use. T4 b1 fixes it.
-18. **A rate-limit check can be half-applied** (`identities.recordRefusal`): the per-identity count is saved even when the global cap then refuses.
+18. **A rate-limit check can be half-applied** (`identities.recordRefusal`): the per-identity count is saved even when the global cap then refuses. **Fixed 2026-11-19 (commit 759b5a6).**
 19. **Convex validators repeat the domain's zod schemas** (`convex/validators.ts` against `src/domain/model.ts` and others), with nothing checking they agree.
-20. **Small messages and limits that disagree:** the aircraft photo limit is 5 MiB but the message says 5 MB; the months-in-service message caps at 11991.786 but accepts up to 11991.802; `parseHours` says "positive" but accepts 0; ATA chapter 67 reads "Rotory".
+20. **Small messages and limits that disagree:** the aircraft photo limit is 5 MiB but the message says 5 MB; the months-in-service message caps at 11991.786 but accepts up to 11991.802; `parseHours` says "positive" but accepts 0; ATA chapter 67 reads "Rotory". **Fixed 2026-11-19 (commits a9f723e, 1faa729).**
 21. **Duplicated values:** the $1 billion price cap in four files; the tenth-of-an-hour rule in `flightChecklistSchema.ts` and `model.ts` with different messages (T7); on-order arithmetic in `programs.ts` and `purchaseOrders.ts`; the default "Performed" phrase in `LogbookWording.tsx`.
 22. **Dead or legacy code:** `assertPassword` has no caller; `resolveExplicitEvents` in `flights.ts` handles counter events from before the fresh start (T21); unused CSS (`.ad-register-toolbar`, `.po-history`, `.flight-fluid-fields p`) and orphaned comments in `src/styles.css`.
 23. **Test gaps** where docs now promise behaviour no test pins: `model.ts` (date limits, offline window, `can`), `flights.ts` (`version + 1`, chronology boundaries), `rateLimits.consume`, `sampleDocuments.upload` clean-up, `secretsMigration` partial re-seal, and `dropboxUpload.test.ts` (retries, upload-session resume, refusals).
 24. **Screens showed Convex's wrapper text** (`[CONVEX M(…)] … Server Error`) instead of the message. Batch 324 fixed 39 screens with one `errorText` helper. Still to adopt it: `Components.tsx:465` and `Management.tsx:1119` (UI lanes), The Sync center is fixed by Batch 418.
 25. **Bug: an unusual file type crashed the file checks** (`"constructor"` looked up in a plain object), showing "Server Error". Fixed in `2f8e917` (the MIME tables are `Map`s).
-26. **Escape never closes a dialog from the aircraft make or model field** (`DrsComboBox` swallows it even when its list is closed). Confirmed on the old code.
-27. **History paging can return a cursor taken from a row the caller cannot see** (`convex/auditHistory.ts`): only a timestamp, but it contradicts the S12 rule. Decide: fix, or relax S12. Pinned by a test.
+26. **Escape never closes a dialog from the aircraft make or model field** (`DrsComboBox` swallows it even when its list is closed). Confirmed on the old code. **Fixed 2026-11-19 (commit 98ac55f).**
+27. **History paging can return a cursor taken from a row the caller cannot see** (`convex/auditHistory.ts`): only a timestamp, but it contradicts the S12 rule. Decide: fix, or relax S12. Pinned by a test. **Fixed 2026-11-19 (commit 9448647):** a cut-short page resumes from the hidden row's opaque id.
 28. **Unconfirmed drift:** copying a flight plan whose source is on another aircraft is likely refused by the server and accepted by the demo. Needs a convex-test.
 29. **Logic in the wrong layer:** `KeepOnDevice.tsx` holds a store and the download logic (belongs in `src/data`); photo resize rules (1024 px, quality 0.85) sit in `AircraftPhoto.tsx` (belong in `src/domain/aircraftPhotos.ts`).
-30. **Messages say MB where the limit is MiB:** manuals 200, attachments 7, licence copies 5, flight-plan PDFs 10, template batches 2 (see also 20).
+30. **Messages say MB where the limit is MiB:** manuals 200, attachments 7, licence copies 5, flight-plan PDFs 10, template batches 2 (see also 20). **Fixed 2026-11-19 (commit a9f723e).**
 31. **More duplicates:** `strokeWidthFor` in three icon components, a class-name join helper in four files, three near-identical icon select components, `addDays` in four domain modules, the same enums in `inspectionTemplates`, `maintenanceCsv` and `components`.
 32. **Still "Server Error" after Batch 417:** `convex/fleet.ts` `assertAvailableAircraft` ("Aircraft belongs to another Flight Program.", "This registration cannot be used.") reaches `admin.createAircraft` as a plain `Error`: convert in Batch 161, after T9 b3. Batch 416 wraps `validateAircraftPhoto`, `fetchAddressSuggestions` and the Spruce parsers, which show once their domain modules throw `Rejection`. **Update:** Batch 262 converted `assertAvailableAircraft`.
-33. **Owner decision: PO uploads write no change-log row** (`convex/poFiles.ts` `finish`), nor do the copies it files on received items. Inventory and aircraft uploads are audited, and so are PO file removals.
-34. **Owner decision: a blank close-out wording prints as an empty line** in the logbook entry, not the placeholder (`""` is not nullish). Changing it changes signed text. Pinned in `src/domain/logbook.test.ts`.
-35. **Wording:** the FAA key notice says "(1 days remaining)"; more than two oil readings show zod's "Too big: expected array to have <=2 items"; the domain says "Template belongs to another program." where the server says "…another Flight Program." (see also 20).
+33. **Owner decision: PO uploads write no change-log row** (`convex/poFiles.ts` `finish`), nor do the copies it files on received items. Inventory and aircraft uploads are audited, and so are PO file removals. **Fixed 2026-11-19 (commit 20c43b6).**
+34. **Owner decision: a blank close-out wording prints as an empty line** in the logbook entry, not the placeholder (`""` is not nullish). Changing it changes signed text. Pinned in `src/domain/logbook.test.ts`. **Fixed 2026-11-19 (commit dd1fa28):** a blank wording prints the prompt.
+35. **Wording:** the FAA key notice says "(1 days remaining)"; more than two oil readings show zod's "Too big: expected array to have <=2 items"; the domain says "Template belongs to another program." where the server says "…another Flight Program." (see also 20). **Fixed in part 2026-11-19 (commit 257ceac):** the day count and the template refusal.
 36. **Bug: validation errors show zod's JSON** ("Look up address" with a blank street; `logbookPhrasesSchema` in LogbookWording; `licenseSchema` in LogbookEntry). `errorText` passes a ZodError's message through. Batch 419. Batch 419 fixes `errorText`. Batch 425 covers task CSV row errors, which embed zod's JSON in a `Rejection` message ("CSV row N: [ … ]"), and zod's default wording.
 37. **Possible crash:** `flightLogImport` `loggedFlights` assumes every logged flight's aircraft is in the snapshot (`find(...)!`). Under review in domain-b. **Resolved: not reachable.** `scopedSnapshot` filters flights by the same visible aircraft, and no code deletes an aircraft.
 38. **Duplicates found in Batches 65–261:**
@@ -109,7 +109,7 @@ Raised by the audit; not batches. Update as batches find more.
 39. **Kept long, for later batches:** `src/data/store.ts` (the store literal is 211 lines, `initialize` 58, `enqueue` 62, and `flushPass` nests 3 deep); `scripts/backup/recordsWorkbook.ts` (Batch 420); `scripts/backup/exportFixture.ts` (Batch 421).
 40. **Smaller notes:**
     - `local.readFavorites` and `saveFavorites` are general string-list settings that `alerts.ts` also uses;
-    - `importADDocx` would list a nested table's rows twice;
+    - ~~`importADDocx` would list a nested table's rows twice~~ (fixed 2026-11-19, commit dff6963);
     - the "correction would change lifetime tracking" refusal can't be reached with today's fixtures;
     - `InventoryAttachments.tsx` has an old `set-state-in-effect` lint warning;
     - `.github/workflows/first-time-setup.yml` has no batch (it already passes the header check);
@@ -117,7 +117,7 @@ Raised by the audit; not batches. Update as batches find more.
 41. **Tooling (owner only):** `check-standards.mjs --changed-since` diffs against the ref's tip, so locally a branch that is behind main reports main's files. It should diff from the merge base. CI is unaffected.
 42. **Flaky only when lanes saturate the CPUs:** `convex/manuals.test.ts`, and the records-workbook command-line test (5 s timeout).
 43. **Over the ~50% size guide, from splitting long functions or documenting bare exports:** Batches 73, 80, 82 and 165; `faaSearch`, `poFiles`, `inventoryFiles`, `inventoryPrintDocument`, `local`, `poPdf` and `partsRequestPdf`.
-44. **Owner decision: job cards imported from a CSV write no change-log rows** (`convex/taskImports.ts` replays `snapshot.audit` only), while `taskCards.save` logs `taskCard.save`. This is pinned in `src/domain/taskCsv.test.ts`. Decide together with 33.
+44. **Owner decision: job cards imported from a CSV write no change-log rows** (`convex/taskImports.ts` replays `snapshot.audit` only), while `taskCards.save` logs `taskCard.save`. This is pinned in `src/domain/taskCsv.test.ts`. Decide together with 33. **Fixed 2026-11-19 (commit 20c43b6).**
 45. **Still "Server Error":**
     - "Report not found." for discrepancy resolve and defer;
     - the generic add-work-item "Work item is unavailable for this aircraft." (Batch 254);
@@ -172,9 +172,9 @@ Raised by the audit; not batches. Update as batches find more.
     - T18's contract step must copy `managementRequests` rows first, and `exportFixture` has no `commandRequests` row;
     - `assertEditable` repeating "Job cards are still being prepared…".
 55. **Records workbook:**
-    - damaged-record notes are generic, because `decodeLenient` drops zod's issues;
+    - ~~damaged-record notes are generic, because `decodeLenient` drops zod's issues~~ (fixed 2026-11-19, commit ae51364);
     - aircraft, flights, discrepancies, inspections and groups are cast without validation;
-    - Change history loses a damaged record's name;
+    - ~~Change history loses a damaged record's name~~ (fixed 2026-11-19, commit ae51364);
     - Change history used to print licence and account numbers held in change-log values. Batch 307's fix hides them.
 56. **Duplicates found in Batches 182–424:**
     - the UTC formatter in `statusSheet` and `aircraftStatusReport`;
@@ -197,26 +197,26 @@ Raised by the audit; not batches. Update as batches find more.
     - the records workbook crashed on damaged records;
     - the demo let anyone resolve a discrepancy or review a flight.
 59. **Still open:**
-    - `PermissionGroupForm.tsx:124` keeps the retired unscoped-group note;
+    - ~~`PermissionGroupForm.tsx:124` keeps the retired unscoped-group note~~ (fixed 2026-11-19, commit 1edf2f4);
     - `src/domain/work-order-closeout/closeout.ts:58` and `readings.ts:36` say `@throws {Error}` for `Rejection`s;
     - the \"Applicable / PCW\" list is defined in `airworthiness`, `partsPlanning`, `workOrders` and `adWorkOrders`;
     - the component label formula appears twice;
     - the preview of a completed order;
-    - ~~the demo still differs from the server on: audit rows for saved addresses, FAA and program select; FAA wording and the monitor cap; the demo's `createUser` admin check; unknown group ids; PO attach wording; the evidence audit shape~~ (done 2026-11-19: `runFaaCommand`, `selectProgram`, `assertAccountAdministrator`, `assertKnownGroups`; saved addresses were already audited);
+    - ~~the demo still differs from the server on: audit rows for saved addresses, FAA and program select; FAA wording and the monitor cap; the demo's `createUser` admin check; unknown group ids; PO attach wording; the evidence audit shape~~ (fixed 2026-11-19, commit cd5f091: `runFaaCommand`, `selectProgram`, `assertAccountAdministrator`, `assertKnownGroups`; saved addresses were already audited);
     - the file-to-data-URL conversion is written four times in `demoBackend.ts`.
-60. **User-visible suggestion:** Dashboard search ignores the aircraft make (\"cessna\" finds nothing).
+60. **User-visible suggestion:** Dashboard search ignores the aircraft make (\"cessna\" finds nothing). **Fixed 2026-11-19 (commit d4bf151).**
 61. **`Field` gives its label's `id` to its child through `cloneElement`,** so a wrapped control silently loses the label. Two lanes hit this; the markup comparison caught both times.
 62. **Owner decisions from Batches 266–426:**
-    - **Job-card sign-offs:** the list and the editor offer different sign-offs. A signed card set back to Draft keeps its sign-offs, and the editor then offers an Inspection sign-off the server refuses. The editor also allows re-signing. Both rules are pinned as `signoffsOfferedInList` and `signoffsOfferedInEditor`.
-    - **Dashboard AD panel vs alerts and digest:** the panel lists ADs that are \"Needs review\", \"Due not set\" or \"Counter unavailable\"; the alerts and the digest only alert overdue or due-soon actions. Both lists are pinned: `DASHBOARD_SETTLED_AD_STATUSES` and `ALERTS_SKIPPED_AD_STATUSES`.
-    - **AD register:** it hides the work-order button when the AD's overall status is \"Due not set\" or \"Counter unavailable\", even if one of its actions is due.
-    - **\"Check FAA now\":** the button blocks for 5 minutes, against the server's 1-minute rule.
-    - **Status sheet PDF colours:** cells are coloured by their text, so an AD's \"Due soon\" prints in plain ink.
-    - **Records workbook:** the AD sheet leaves Not applicable and Superseded ADs uncoloured.
-    - **Correction addendum:** no full stop after a description that lacks one. This is record text.
-    - **Dashboard search:** it ignores the make.
-    - **Planning CSV:** the Status column exports raw codes.
-    - **Scanner:** a camera no-match shows its refusal under the typed-code form, and the camera keeps running.
+    - **Job-card sign-offs:** the list and the editor offer different sign-offs. A signed card set back to Draft keeps its sign-offs, and the editor then offers an Inspection sign-off the server refuses. The editor also allows re-signing. Both rules are pinned as `signoffsOfferedInList` and `signoffsOfferedInEditor`. **Fixed 2026-11-19 (commit e72c57a):** both offer exactly the signoffs the server accepts, and Draft clears them.
+    - **Dashboard AD panel vs alerts and digest:** the panel lists ADs that are \"Needs review\", \"Due not set\" or \"Counter unavailable\"; the alerts and the digest only alert overdue or due-soon actions. Both lists are pinned: `DASHBOARD_SETTLED_AD_STATUSES` and `ALERTS_SKIPPED_AD_STATUSES`. **Fixed 2026-11-19 (commit 7602179):** one list, `SETTLED_AD_STATUSES`, with a For review alert.
+    - **AD register:** it hides the work-order button when the AD's overall status is \"Due not set\" or \"Counter unavailable\", even if one of its actions is due. **Fixed 2026-11-19 (commit f13ecef).**
+    - **\"Check FAA now\":** the button blocks for 5 minutes, against the server's 1-minute rule. **Fixed 2026-11-19 (commit a2257dc).**
+    - **Status sheet PDF colours:** cells are coloured by their text, so an AD's \"Due soon\" prints in plain ink. **Fixed 2026-11-19 (commit 9bfd107).**
+    - **Records workbook:** the AD sheet leaves Not applicable and Superseded ADs uncoloured. **Fixed 2026-11-19 (commit 9bfd107).**
+    - **Correction addendum:** no full stop after a description that lacks one. This is record text. **Fixed 2026-11-19 (commit 8662242).**
+    - **Dashboard search:** it ignores the make. **Fixed 2026-11-19 (commit d4bf151).**
+    - **Planning CSV:** the Status column exports raw codes. **Fixed 2026-11-19 (commit 31d336b).**
+    - **Scanner:** a camera no-match shows its refusal under the typed-code form, and the camera keeps running. **Fixed 2026-11-19 (commit ebe8ef5).**
     - **Idempotency:** whether parts requests and purchase orders should join `commandRequests`.
 63. **Robustness in damaged data only** (the aircraft form refuses this state): an aircraft meter with no reading still breaks the flight-plan queue, the Aircraft page, the Inspections page, the owner portal, the Dashboard with a time-limited component, and the status sheet. They read the total directly. A `model.ts` helper returning \"total time, or undefined without a reading\" would serve them all. 26 damaged exports still stop the workbook with TypeErrors, unchanged.
 64. **Small duplicates left after the final round:**
@@ -228,8 +228,8 @@ Raised by the audit; not batches. Update as batches find more.
     - **Damaged data:** an aircraft meter without a reading no longer breaks flight plans, the owner portal, the status sheet (an aircraft with no inspections) or the Inspections page. It shows \"Not recorded\" or Unknown, and completing an inspection on it is still refused.
 66. **Safety note (damaged data only), fixed 2026-11-09 (RM-66):** `inspectionCounters` read the aircraft total even for a calendar-only inspection, so on an aircraft meter without a reading an inspection overdue by date showed as Unknown and didn't ground the aircraft. `aircraftSecondsFor` now tolerates the unreadable meter when the inspection sets no hours limit; completing an inspection still needs the reading, since it becomes the next baseline. Pinned by `withoutMeterReading` (`i-calendar-unread`) in `tests/fixtures/dueFleet.ts`.
 67. **Owner decisions, from this checkpoint:**
-    - `activateTemplate` gives new requirements warnings of 10 h, 10 cycles and 1 month; the Components form starts at 25 h, 10 cycles, 10 landings and 1 month (`REQUIREMENT_WARNING_DEFAULTS`).
-    - The transfer reason's 2,000-character limit is enforced only in the form; `TRANSFER_REASON_MAX_LENGTH` is exported, and the server accepts longer reasons.
+    - `activateTemplate` gives new requirements warnings of 10 h, 10 cycles and 1 month; the Components form starts at 25 h, 10 cycles, 10 landings and 1 month (`REQUIREMENT_WARNING_DEFAULTS`). **Fixed 2026-11-19 (commit 3053bfd):** templates use the same defaults.
+    - The transfer reason's 2,000-character limit is enforced only in the form; `TRANSFER_REASON_MAX_LENGTH` is exported, and the server accepts longer reasons. **Fixed 2026-11-19 (commit d7a1a66).**
 68. **Leftovers for a later pass:**
     - `SECONDS_PER_HOUR` copies in about 20 more modules, including a second export in `costs/units.ts`;
     - screens re-implementing `readings.ts` helpers;
@@ -251,16 +251,16 @@ Raised by the audit; not batches. Update as batches find more.
     - the remaining blank-CSV and download call sites;
     - limits copied into `Components.tsx`, `ManualDiscovery.tsx` and `Fleet.tsx` (the part 2s);
     - the workbook's now-unreachable AD workaround in `dueList`;
-    - a request uuid kept for the life of the inspection form, so an edited retry is refused.
+    - ~~a request uuid kept for the life of the inspection form, so an edited retry is refused~~ (fixed 2026-11-19, commit a3d0ea5).
     - no browser spec covers `/planning`, the work-order costs panel, the inventory scanner or the close-out correction;
     - `tests/fixtures/componentMovement.ts` has an unreachable guard;
     - `inventory-printing.spec.ts` writes a PNG outside `test-results`;
-    - `resequenceReason` labels an offset start time as UTC;
-    - flight review now shows administrators "Inspection component not found." (a data-integrity message);
-    - an unknown sign-in provider gets the Microsoft logo.
+    - ~~`resequenceReason` labels an offset start time as UTC~~ (fixed 2026-11-19, commit 8675ab6; the held-flight review's "Flight time (UTC)" had the same fault, fixed 2026-11-20, commit 468d37a);
+    - ~~flight review now shows administrators "Inspection component not found." (a data-integrity message)~~ (fixed 2026-11-19, commit 60d7cd3);
+    - ~~an unknown sign-in provider gets the Microsoft logo~~ (fixed 2026-11-19, commit 1ffc486).
     - the common-password list is loaded on the server's sign-in path; its header is corrected;
     - the `users` table drops Convex Auth's `phone` index, which is safe and now commented;
-    - an unknown sign-in provider gets the Microsoft logo;
+    - ~~an unknown sign-in provider gets the Microsoft logo~~ (fixed 2026-11-19, commit 1ffc486);
     - the logbook preview passes "[completion date]" as a licence as-of date (harmless).
 69. **Snapshot cost, left after the size fixes (SZ-1, 2026-11-10):** measured by `convex/snapshotCost.test.ts`; the real fix is the retention window in the size design.
     - `inventoryAttachments` (`convex/operations.ts`) still looks files up once per stock or component record for administrators (about 900 lookups at the test volume). Its count follows the inventory, not the years, and transfers re-tag stock, so a stored program key could go stale; key the rows by program only together with the transfer path.
@@ -800,3 +800,4 @@ Each file is decomposed behind a backward-compatible barrel: the original path k
 - [ ] Batch 409 (ui-a): `src/components/Dashboard.tsx` (1012 lines), part 3 of 3 (after T13 b3): split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel. **Deferred (scope, 2026-11-04):** a cosmetic split with no rule to move; pick it up only if wanted. The Discrepancies screen and its dialogs moved to `Discrepancies.tsx` in the redesign (2026-11-12), with the shared date formats in `recordDates.ts`; the flight log, Sync center and Change history remain.
 - [ ] Batch 431 (data): `src/data/paperCheckReport.ts` copies the private table writer of `src/data/aircraftStatusReport.ts` (`writeTable`, `wrapCells`, `drawPageHeader`, `writeFooters`). Once the shared table helper (`src/data/tablePdf.ts`, in progress on another branch) lands, move both reports onto it and delete the copies.
 - [ ] Batch 432 (ui): `ShopPill` in `src/components/ShopList.tsx` picks a pill's icon from its tone, which every screen's `StatusPill` wants: move the tone-to-icon map into `StatusPill` (`src/components/design.tsx`) and delete `ShopPill`. The job card and work order editor rules (`.job-card-*`, `.work-order-*`) still sit in `src/styles.css`, which loads on every screen; move them to `src/styles/screens/shop.css`, which only the shop screens load.
+- [ ] Batch 433 (data): `readFavorites` and `saveFavorites` in `src/data/local.ts` hold every per-user list in device settings (favorites, the device copy of read alerts, the demo's read marks), so their names mislead. Rename them to `readSettingList` and `saveSettingList`, with their callers in `src/data/store.ts`, `src/data/alerts.ts` and `src/data/demoBackend.ts`. The move of every stored file onto expiring links is tracked in [file links](docs/file-links.md#what-is-left), not here.

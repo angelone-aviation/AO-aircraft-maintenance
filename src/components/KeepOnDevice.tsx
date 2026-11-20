@@ -205,11 +205,13 @@ export async function removeFromDevice(manual: Manual) {
 
 /**
  * A URL for the manual's PDF: the copy kept on this device when there is a
- * readable one (no network, so it opens offline), otherwise the existing
- * authorized online file. Blob URLs are the caller's to revoke.
+ * readable one (no network, so it opens offline), otherwise the online file,
+ * downloaded once. Either way an object URL, the caller's to revoke.
  *
  * @param options.useDevice - False skips the kept copy.
- * @throws Error "Manual is not available." with no kept copy and no backend.
+ * @throws Error "Manual is not available." with no kept copy and no backend;
+ *   "Manual file is unavailable." when the download fails; as
+ *   Backend.openManual.
  */
 export async function openManualFile(
   uuid: string,
@@ -222,7 +224,18 @@ export async function openManualFile(
       : undefined;
   if (kept) return { url: URL.createObjectURL(kept), fromDevice: true };
   if (!backend) throw new Error("Manual is not available.");
-  return { url: await backend.openManual(uuid), fromDevice: false };
+  return { url: await downloadManual(backend, uuid), fromDevice: false };
+}
+
+// A live link stops working after five minutes while the viewer's Open and
+// Download buttons stay on screen, so one download serves them all, as a
+// kept copy does. The demo already hands back an object URL.
+async function downloadManual(backend: Backend, uuid: string) {
+  const url = await backend.openManual(uuid);
+  if (url.startsWith("blob:")) return url;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Manual file is unavailable.");
+  return URL.createObjectURL(await response.blob());
 }
 
 function DownloadProgress({

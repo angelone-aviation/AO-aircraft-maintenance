@@ -171,23 +171,6 @@ export const list = query({
 });
 
 /**
- * Opens a license copy.
- *
- * @param id - The copy.
- * @returns A URL to download it, or null when its stored file is gone.
- * @throws {Error} The session refusal of `currentUser`, first.
- * @throws {ConvexError} "License copy not found.", also for another
- *   member's copy unless the caller is a system administrator.
- */
-export const fileUrl = query({
-  args: { id: v.id("certificationFiles") },
-  handler: async (ctx, { id }) => {
-    const { file } = await readableCopy(ctx, id);
-    return ctx.storage.getUrl(file.storageId);
-  },
-});
-
-/**
  * Refuses an upload for {@link upload} before anything is stored.
  *
  * @param userId - The member.

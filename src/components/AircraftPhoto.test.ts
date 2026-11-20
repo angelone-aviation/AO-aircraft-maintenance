@@ -11,13 +11,16 @@ import { describe, expect, it, vi } from "vitest";
 import { AircraftPhoto } from "./AircraftPhoto";
 
 const workspace = vi.hoisted(() => ({ state: {} as Record<string, unknown> }));
-vi.mock("../data/store", () => ({ useWorkspace: () => workspace.state }));
+vi.mock("../data/store", () => ({
+  useWorkspace: (select?: (state: Record<string, unknown>) => unknown) =>
+    select ? select(workspace.state) : workspace.state,
+}));
 
 function render(aircraftUuid: string, online = true) {
   workspace.state = {
     snapshot: {
       aircraft: [
-        { uuid: "a1", registration: "N1", photoUrl: "https://p.example/1" },
+        { uuid: "a1", registration: "N1", hasPhoto: true },
         { uuid: "a2", registration: "N2" },
       ],
     },
@@ -29,9 +32,10 @@ function render(aircraftUuid: string, online = true) {
 }
 
 describe("AircraftPhoto", () => {
-  it("previews the photo and offers to remove it", () => {
+  it("offers to remove an existing photo, previewed once its link arrives", () => {
     const html = render("a1");
-    expect(html).toContain('alt="N1 photo preview"');
+    // The preview needs a link from the server: tests/e2e covers it.
+    expect(html).not.toContain("<img");
     expect(html).toContain("Remove photo</button>");
   });
 

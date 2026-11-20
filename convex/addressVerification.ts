@@ -6,7 +6,8 @@
  *   stored sealed and never returned.
  * Dependencies: convex/access, convex/programContext, convex/secrets,
  *   convex/secretsMigration, convex/rateLimits, src/domain/model,
- *   src/domain/programs, src/domain/addressLookup, src/domain/rejection, zod.
+ *   src/domain/programs, src/domain/programShare, src/domain/addressLookup,
+ *   src/domain/rejection, zod.
  */
 import {
   action,
@@ -23,9 +24,10 @@ import { admin, audit } from "./access";
 import { checkContext } from "./programContext";
 import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
-import { consume, DAY, programShare } from "./rateLimits";
+import { consume, DAY } from "./rateLimits";
 import { can, type Snapshot } from "../src/domain/model";
 import { programPermission } from "../src/domain/programs";
+import { programShare } from "../src/domain/programShare";
 import {
   ADDRESS_SUGGESTION_LIMIT,
   addressLookupSchema,

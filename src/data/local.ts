@@ -1,7 +1,7 @@
 /**
  * Responsibility: Keeps the device's copy of the workspace in IndexedDB:
  *   snapshots, the offline outbox, queued logbook page photos, small
- *   settings and kept manual files.
+ *   settings and the demo's manual files, and clears a user's share of it.
  * Layer: Data. Browser storage only; no React, no network.
  * Dependencies: idb, src/domain/model.ts (types),
  *   src/domain/workOrderCleanup.ts, src/data/logbookPhotos.ts (types).
@@ -147,6 +147,49 @@ export async function removeOperation(namespace: string, uuid: string) {
 }
 
 /**
+ * The settings key of a user's favorite aircraft.
+ *
+ * @param namespace - The workspace namespace.
+ * @param userId - The user.
+ * @returns `<namespace>:<userId>`.
+ */
+export function favoritesKey(namespace: string, userId: string) {
+  return `${namespace}:${userId}`;
+}
+
+/**
+ * The settings key of the device copy of the alerts a user has read in one
+ * Flight Program.
+ *
+ * @param namespace - The workspace namespace.
+ * @param userId - The user.
+ * @param programUuid - The active program; undefined for unassigned records.
+ * @returns `<namespace>:alert-reads:<userId>:<programUuid or "">`.
+ */
+export function alertReadsKey(
+  namespace: string,
+  userId: string,
+  programUuid: string | undefined,
+) {
+  return alertReadsPrefix(namespace, userId) + (programUuid ?? "");
+}
+
+/**
+ * For sign-out: deletes what this device keeps for one user in a namespace's
+ * databases: the cached snapshot, the outbox entries they recorded, the photos
+ * they queued, their favorites and their read-alert lists. Other people's
+ * entries and photos stay, since only their author may discard them, and so
+ * do the demo's own records (its full snapshot, files and read marks).
+ *
+ * @param namespace - The workspace namespace.
+ * @param userId - The user signing out.
+ */
+export async function clearUserData(namespace: string, userId: string) {
+  await clearCachedUserData(namespace, userId);
+  await clearQueuedPhotos(namespace, userId);
+}
+
+/**
  * Reads a list of strings kept in device settings (favorites, read alerts).
  *
  * @param key - The settings key.
@@ -262,4 +305,45 @@ function shareConnection<Schema extends DBSchema | unknown>(
 
 function entryKey(namespace: string, uuid: string): string {
   return namespace + ":" + uuid;
+}
+
+function alertReadsPrefix(namespace: string, userId: string) {
+  return `${namespace}:alert-reads:${userId}:`;
+}
+
+// One transaction, so a sign-out never leaves the snapshot gone but the
+// outbox or settings half cleared.
+async function clearCachedUserData(namespace: string, userId: string) {
+  const tx = (await cacheDb()).transaction(
+    ["snapshots", "outbox", "settings"],
+    "readwrite",
+  );
+  const settings = tx.objectStore("settings");
+  const reads = alertReadsPrefix(namespace, userId);
+  for (const key of await settings.getAllKeys())
+    if (key.startsWith(reads)) await settings.delete(key);
+  await settings.delete(favoritesKey(namespace, userId));
+  await tx.objectStore("snapshots").delete(namespace);
+  let cursor = await tx.objectStore("outbox").openCursor();
+  while (cursor) {
+    const { namespace: owner, operation } = cursor.value;
+    if (owner === namespace && operation.authorId === userId)
+      await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+}
+
+async function clearQueuedPhotos(namespace: string, userId: string) {
+  const tx = (await photoDb()).transaction("photos", "readwrite");
+  let cursor = await tx.store.openCursor();
+  while (cursor) {
+    if (
+      cursor.value.namespace === namespace &&
+      cursor.value.authorId === userId
+    )
+      await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
 }

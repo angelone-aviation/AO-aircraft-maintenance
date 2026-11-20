@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the live app against a local Convex backend: password
  *   sign-in, an offline reload, a problem report synced on reconnect, and an
- *   offline sign-out that clears sign-in tokens but keeps the outbox.
+ *   offline sign-out that clears sign-in tokens and, once confirmed, the
+ *   unsynced entry.
  * Layer: Test. Playwright spec; skips itself without the local test account.
  * Dependencies: @playwright/test, node:fs.
  */
@@ -48,17 +49,20 @@ test("real Convex login, offline reload and automatic discrepancy sync", async (
   await expect(page.getByText(description, { exact: true })).toHaveCount(1);
 });
 
-test("offline logout clears cached access but retains entries for the original account", async ({
+test("offline sign-out clears sign-in tokens and deletes an unsynced entry only once confirmed", async ({
   page,
   context,
 }) => {
   await signInForOffline(page);
   await context.setOffline(true);
-  await reportProblem(page, "Logout preservation " + Date.now());
+  const description = "Deleted at sign-out " + Date.now();
+  await reportProblem(page, description);
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  const warning = page.getByRole("dialog", { name: "1 entry hasn't synced" });
   // Sign-out reloads the page.
   await Promise.all([
     page.waitForEvent("domcontentloaded"),
-    page.getByRole("button", { name: "Sign out", exact: true }).click(),
+    warning.getByRole("button", { name: "Delete and sign out" }).click(),
   ]);
   await expect(
     page.getByRole("heading", { name: "Welcome back." }),
@@ -71,12 +75,13 @@ test("offline logout clears cached access but retains entries for the original a
     ),
   ).toBe(0);
   await context.setOffline(false);
-  // The outbox survives sign-out and syncs once the same account is back.
   await login(page);
   await page.getByRole("link", { name: /Sync center/ }).click();
   await expect(
     page.getByRole("heading", { name: "0 pending entries" }),
-  ).toBeVisible({ timeout: SYNC_TIMEOUT_MS });
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
+  await expect(page.getByText(description, { exact: true })).toHaveCount(0);
 });
 
 async function login(page: Page) {

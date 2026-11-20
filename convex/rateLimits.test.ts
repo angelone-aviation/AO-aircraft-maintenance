@@ -1,22 +1,15 @@
 /**
  * Responsibility: Pins the rate-limit counter: epoch-aligned windows, a
  *   refusal that records nothing, multi-use costs, several allowances spent
- *   together or not at all, refunds that stay in their window and never go
- *   below zero, and a program's share of a shared allowance.
+ *   together or not at all, and refunds that stay in their window and never
+ *   go below zero.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/rateLimits.ts, convex/schema.ts.
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import schema from "./schema";
-import {
-  consume,
-  consumeAll,
-  DAY,
-  HOUR,
-  programShare,
-  refund,
-} from "./rateLimits";
+import { consume, consumeAll, DAY, HOUR, refund } from "./rateLimits";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -124,11 +117,4 @@ it("judges the refund's window by the length the caller passes", async () => {
   // The DAY window began at midnight; the HOUR window now began at 23:00.
   await w.giveBack(1, HOUR);
   expect((await w.rows())[0].count).toBe(2);
-});
-
-it("splits an allowance equally between programs, rounding down, never below the floor", () => {
-  expect(programShare(2900, 0, 100)).toBe(2900);
-  expect(programShare(2900, 1, 100)).toBe(2900);
-  expect(programShare(2900, 3, 100)).toBe(966);
-  expect(programShare(2900, 30, 100)).toBe(100);
 });

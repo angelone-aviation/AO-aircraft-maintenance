@@ -57,8 +57,8 @@ test("filters the forecast, updates its stats and exports the shown items as CSV
   await filter(page, "Aircraft", "N182MA");
   const csv = await exportCsv(page);
   expect(csv.name).toMatch(/^maintenance-forecast-\d{4}-\d{2}-\d{2}\.csv$/);
-  // Characterizes current behaviour: the Status column keeps the raw status
-  // code ("due-soon") where the screen shows "Due soon".
+  // OD-8: the Status column carries the words the screen shows, not the
+  // stored status code ("due-soon").
   expect(csv.lines).toEqual([
     UTF8_BOM + csvLine(CSV_HEADER),
     csvLine([
@@ -70,7 +70,7 @@ test("filters the forecast, updates its stats and exports the shown items as CSV
       "Calendar",
       "",
       `due ${due}`,
-      "due-soon",
+      "Due soon",
       "No accepted flights recorded for this aircraft.",
     ]),
   ]);

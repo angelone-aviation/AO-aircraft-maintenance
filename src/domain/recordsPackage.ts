@@ -7,7 +7,7 @@
  * Layer: Domain. Pure functions; no I/O and no layout.
  * Dependencies: src/domain (statusSheet, model, auditHistory, logbook,
  *   adCompliance, adOwnership, components, aircraftFiles, flights, rejection,
- *   workOrders and airworthiness types).
+ *   fileLinks, workOrders and airworthiness types).
  *
  * The package serves FAA inspection access (14 CFR 91.417(c)) and transfer
  * with the aircraft at sale (91.419), as ADR-0004 decided. It copies what is
@@ -30,6 +30,7 @@ import {
 import { auditActionLabel } from "./auditHistory";
 import { logbookRecordText } from "./logbook";
 import { adAircraftUuid } from "./adOwnership";
+import type { FileRef } from "./fileLinks";
 import type { AD, ADCompliance } from "./airworthiness";
 import {
   componentTotals,
@@ -103,11 +104,11 @@ export interface RecordsSection {
   tones?: StatusSection["tones"];
 }
 
-/** A stored file the package copies in, fetched by its URL. */
+/** A stored file the package copies in, fetched through its link. */
 export interface PackageFile {
   /** Where it goes in the package, such as "form-337/2026-03-01-repair.pdf". */
   path: string;
-  url: string;
+  file: FileRef;
   size: number;
   /**
    * What it is, for the README: "Form 337 copy", "Work order WO-…
@@ -796,7 +797,7 @@ function form337Copies(s: Snapshot, a: Aircraft) {
 function form337Files(s: Snapshot, a: Aircraft): PackageFile[] {
   return form337Copies(s, a).map(({ copy, path }) => ({
     path,
-    url: copy.url,
+    file: { kind: "aircraftFile", id: copy.uuid },
     size: copy.size,
     description: isCurrentAircraftFile(copy)
       ? "Form 337 copy"
@@ -812,7 +813,7 @@ function attachmentFiles(s: Snapshot, orders: WorkOrder[]): PackageFile[] {
       .sort((x, z) => x.uploadedAt - z.uploadedAt)
       .map((f) => ({
         path: `files/${utcDate(f.uploadedAt)}-${safeFileName(f.name)}`,
-        url: f.url,
+        file: { kind: "workOrderFile", id: f.uuid },
         size: f.size,
         description: `Work order ${numbers.get(f.workOrderUuid) || "(no number)"} attachment`,
       })),
@@ -837,7 +838,7 @@ function logbookPhotoFiles(
       .sort((x, z) => x.uploadedAt - z.uploadedAt)
       .map((f) => ({
         path: `${LOGBOOK_PHOTOS}/${utcDate(f.uploadedAt)}-${safeFileName(f.name)}`,
-        url: f.url,
+        file: { kind: "aircraftFile", id: f.uuid },
         size: f.size,
         description: describePhoto(s, f, orders),
       })),

@@ -1,13 +1,14 @@
 /**
- * Responsibility: Which outbox entries are the signed-in user's, and the file
- *   that saves a copy of them.
+ * Responsibility: Which outbox entries are the signed-in user's, how much of
+ *   their work has not synced, and the file that saves a copy of them.
  * Layer: Data. Pure functions over the outbox; no I/O, no React.
- * Dependencies: src/domain/model.ts (types).
+ * Dependencies: src/domain/model.ts (types), src/data/logbookPhotos.ts.
  *
  * An entry belongs to the user who recorded it: only its author may see,
- * export or sync it, even when several people share one device.
+ * export, sync or discard it, even when several people share one device.
  */
 import type { QueuedOperation } from "../domain/model";
+import { ownPendingPhotos, type PendingLogbookPhoto } from "./logbookPhotos";
 
 /**
  * The outbox entries `userId` recorded on this device.
@@ -21,6 +22,27 @@ export function ownEntries(
   userId: string,
 ): QueuedOperation[] {
   return queue.filter((q) => q.operation.authorId === userId);
+}
+
+/**
+ * How much of a user's work on this device has not reached the server: what
+ * signing out would delete.
+ *
+ * @param queue - The workspace's outbox.
+ * @param photos - The workspace's queued logbook page photos.
+ * @param userId - The signed-in user.
+ * @returns Counts of their outbox entries and queued photos, refused ones
+ *   included.
+ */
+export function unsyncedItems(
+  queue: QueuedOperation[],
+  photos: PendingLogbookPhoto[],
+  userId: string,
+): { entries: number; photos: number } {
+  return {
+    entries: ownEntries(queue, userId).length,
+    photos: ownPendingPhotos(photos, userId).length,
+  };
 }
 
 /**

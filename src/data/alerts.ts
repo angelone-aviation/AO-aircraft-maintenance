@@ -139,7 +139,11 @@ const union = (a: string[], b: string[]) => [...new Set([...a, ...b])];
 function currentScope(): string {
   const { namespace, snapshot } = useWorkspace.getState();
   return snapshot
-    ? `${namespace}:alert-reads:${snapshot.user.id}:${snapshot.activeProgramUuid ?? ""}`
+    ? local.alertReadsKey(
+        namespace,
+        snapshot.user.id,
+        snapshot.activeProgramUuid,
+      )
     : "";
 }
 

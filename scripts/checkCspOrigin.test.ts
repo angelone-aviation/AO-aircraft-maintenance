@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins check-csp-origin.mjs's rules: https on its default
- *   port only, the three Convex sources, the Sentry DSN's one, exact and `*.`
- *   hosts, and the refusal messages.
+ *   port only, the Convex sources on the cloud host and on its .convex.site
+ *   host (file links), the Sentry DSN's one, exact and `*.` hosts, the
+ *   refusal messages, and a policy read past `#` comments.
  * Layer: Test. Runs a copy of the script beside a temporary public/_headers.
  * Dependencies: vitest, scripts/check-csp-origin.mjs, public/_headers.
  *
@@ -21,9 +22,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve(__dirname, "check-csp-origin.mjs");
 const DEPLOYMENT = "https://happy-otter-123.convex.cloud";
+const SITE = "https://happy-otter-123.convex.site";
 const CONVEX_POLICY =
-  "default-src 'self'; img-src 'self' https://*.convex.cloud; " +
-  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud";
+  "default-src 'self'; img-src 'self' https://*.convex.site; " +
+  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud " +
+  "https://*.convex.site";
 const SENTRY_DSN = "https://publickey@o1.ingest.us.sentry.io/1";
 const SENTRY_HOST = "https://o1.ingest.us.sentry.io";
 
@@ -52,28 +55,59 @@ describe("check-csp-origin.mjs", () => {
 
   it("matches an exact host, but not its subdomains", () => {
     const policy =
-      "img-src https://api.example.org; " +
-      "connect-src https://api.example.org wss://api.example.org";
+      "img-src https://actions.example.org; " +
+      "connect-src https://api.example.org wss://api.example.org " +
+      "https://actions.example.org";
+    const actions = "https://actions.example.org";
 
-    expect(check("https://api.example.org", policy).status).toBe(0);
-    expect(check("https://eu.api.example.org", policy).status).toBe(1);
+    expect(run(["https://api.example.org", actions], policy).status).toBe(0);
+    expect(run(["https://eu.api.example.org", actions], policy).status).toBe(1);
+  });
+
+  it("checks file links on the deployment's .convex.site host, not storage", () => {
+    const run = check(
+      DEPLOYMENT,
+      "img-src https://*.convex.cloud; " +
+        "connect-src https://*.convex.cloud wss://*.convex.cloud",
+    );
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toBe(
+      `${DEPLOYMENT} is not allowed by public/_headers: ` +
+        `connect-src ${SITE}, img-src ${SITE}. ` +
+        "Add it to the Content-Security-Policy before deploying.\n",
+    );
+  });
+
+  it("needs the HTTP actions URL of a deployment on a custom domain", () => {
+    const run = check("https://api.example.org", CONVEX_POLICY);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toBe(
+      "https://api.example.org is not a Convex cloud deployment " +
+        "(<name>.convex.cloud); pass its HTTP actions URL as a second " +
+        "argument.\n",
+    );
   });
 
   it("does not let `*.host` cover the bare host", () => {
-    expect(check("https://convex.cloud", CONVEX_POLICY).status).toBe(1);
+    const bare = run(["https://convex.cloud", SITE], CONVEX_POLICY);
+
+    expect(bare.status).toBe(1);
+    expect(bare.stderr).toContain("connect-src https://convex.cloud,");
   });
 
   it("never matches a source with a port or a path", () => {
     const policy =
-      "img-src https://*.convex.cloud/; " +
-      "connect-src https://*.convex.cloud:443 wss://*.convex.cloud";
+      "img-src https://*.convex.site/; " +
+      "connect-src https://*.convex.cloud:443 wss://*.convex.cloud " +
+      "https://*.convex.site";
 
     const run = check(DEPLOYMENT, policy);
 
     expect(run.status).toBe(1);
     expect(run.stderr).toContain(
-      "connect-src https://happy-otter-123.convex.cloud, " +
-        "img-src https://happy-otter-123.convex.cloud.",
+      "connect-src https://happy-otter-123.convex.cloud, " + `img-src ${SITE}.`,
     );
   });
 
@@ -84,7 +118,7 @@ describe("check-csp-origin.mjs", () => {
     expect(run.stderr).toBe(
       `${DEPLOYMENT} is not allowed by public/_headers: ` +
         "connect-src wss://happy-otter-123.convex.cloud, " +
-        "img-src https://happy-otter-123.convex.cloud. " +
+        `connect-src ${SITE}, img-src ${SITE}. ` +
         "Add it to the Content-Security-Policy before deploying.\n",
     );
   });
@@ -117,6 +151,14 @@ describe("check-csp-origin.mjs", () => {
 
     expect(run.status).toBe(1);
     expect(run.stderr).toBe("The Convex URL is not a valid URL.\n");
+  });
+
+  it("reads the policy from its header line, never from a comment naming it", () => {
+    const headers =
+      "# Content-Security-Policy: default-src 'self'\n" +
+      `/*\n  Content-Security-Policy: ${CONVEX_POLICY}\n`;
+
+    expect(runWith([DEPLOYMENT], headers).status).toBe(0);
   });
 
   it("passes a Convex cloud deployment against the shipped policy", () => {
@@ -195,10 +237,11 @@ function checkDsn(dsn: string, policy: string) {
 }
 
 function run(args: string[], policy: string) {
-  writeFileSync(
-    path.join(dir, "public", "_headers"),
-    `/*\n  Content-Security-Policy: ${policy}\n`,
-  );
+  return runWith(args, `/*\n  Content-Security-Policy: ${policy}\n`);
+}
+
+function runWith(args: string[], headers: string) {
+  writeFileSync(path.join(dir, "public", "_headers"), headers);
   const script = path.join(dir, "scripts", "check-csp-origin.mjs");
   return spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
 }

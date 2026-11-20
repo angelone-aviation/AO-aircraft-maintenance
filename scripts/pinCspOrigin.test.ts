@@ -56,6 +56,16 @@ describe("pin-csp-origin.mjs", () => {
     );
   });
 
+  // A comment taken for the policy would leave the real one unpinned (C3).
+  it("pins the header line and leaves a comment naming the policy as it was", () => {
+    const comment = "# Content-Security-Policy: https://*.convex.cloud\n";
+
+    const { run, after } = pin(DEPLOYMENT, comment + HEADERS);
+
+    expect(run.status).toBe(0);
+    expect(after).toBe(comment + pin(DEPLOYMENT, HEADERS).after);
+  });
+
   it("keeps a regional deployment's region in both hosts", () => {
     const { after } = pin("https://calm-fox-9.eu-west-1.convex.cloud", HEADERS);
 
@@ -76,7 +86,11 @@ describe("pin-csp-origin.mjs", () => {
         "https://happy-otter-123.convex.site",
       ]),
     );
+    // Images come only from file links on the site host, never storage.
     expect(sourcesOf(policy, "img-src")).toContain(
+      "https://happy-otter-123.convex.site",
+    );
+    expect(sourcesOf(policy, "img-src")).not.toContain(
       "https://happy-otter-123.convex.cloud",
     );
   });

@@ -4,7 +4,7 @@
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./aircraftStatus, ./certifications, ./components,
  *   ./dueItems, ./expiringItems, ./faaCandidateReview, ./maintenance,
- *   ./programs, ./reportBacklog; ./airworthiness (types).
+ *   ./programs, ./programShare, ./reportBacklog; ./airworthiness.
  */
 import { aircraftStatus } from "./aircraftStatus";
 import { SETTLED_AD_STATUSES, type AD, type ADTask } from "./airworthiness";
@@ -39,6 +39,7 @@ import {
   type Snapshot,
 } from "./model";
 import { programPermission } from "./programs";
+import { programShare } from "./programShare";
 import {
   highReportBacklogs,
   MAX_OPEN_REPORT_BYTES_PER_MEMBER,
@@ -264,16 +265,14 @@ export function urgentAlerts<T extends Pick<Alert, "kind">>(alerts: T[]): T[] {
 export function immediateEmailShare(activePrograms: number): number {
   // One program's flood (an administrator re-saving a past date 60 times,
   // SE-3) must not hold back another program's "is grounded" email until
-  // the next digest. An equal split is the plainest fair rule, since every
-  // program's members count alike. The floor leaves room for one bad event
-  // among a program's administrators and maintenance members once many
-  // programs share the total: past six programs the shares add up to more
-  // than the total, which still caps them all together, so a share bounds
-  // what one program can take rather than promising it.
-  const equal = Math.floor(
-    IMMEDIATE_EMAILS_PER_DAY / Math.max(1, activePrograms),
+  // the next digest. The floor leaves room for one bad event among a
+  // program's administrators and maintenance members once many programs
+  // share the total: past six programs the shares add up to more than it.
+  return programShare(
+    IMMEDIATE_EMAILS_PER_DAY,
+    activePrograms,
+    IMMEDIATE_EMAIL_SHARE_FLOOR,
   );
-  return Math.max(IMMEDIATE_EMAIL_SHARE_FLOOR, equal);
 }
 
 const alertKey = (kind: AlertKind, ...parts: unknown[]) =>

@@ -329,6 +329,9 @@ test("alert email is chosen only under Alerts, and needs a connection", async ({
   await expect(digest).not.toBeChecked();
   await digest.check();
   await expect(digest).toBeChecked();
+  // The switch shows the choice at once and stays disabled until it is
+  // saved; a reload before then can discard a save still in flight.
+  await expect(digest).toBeEnabled();
   await page.reload();
   await expect(digest).toBeChecked();
   await page

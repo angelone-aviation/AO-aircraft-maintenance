@@ -5,8 +5,8 @@
  * Layer: UI. React components; writes through the workspace store.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
  *   src/data/logbookPhotos.ts, src/domain/aircraftFiles.ts,
- *   src/domain/model.ts, ./AircraftFiles.tsx, ./design.tsx, ./ui.tsx,
- *   src/styles/screens/logbook-photos.css.
+ *   src/domain/model.ts, ./AircraftFiles.tsx, ./FileLink.tsx, ./design.tsx,
+ *   ./ui.tsx, src/styles/screens/logbook-photos.css.
  *
  * For its first year the program keeps paper logbooks beside the app; a
  * photo of the paper line ties the two. Photos are never deleted (ADR-0004):
@@ -26,7 +26,8 @@ import {
   type AircraftFileLink,
 } from "../domain/aircraftFiles";
 import type { Snapshot } from "../domain/model";
-import { AircraftFileArchiveForm, useOpenableUrl } from "./AircraftFiles";
+import { AircraftFileArchiveForm } from "./AircraftFiles";
+import { LinkedImage, OpenLink, useFileLink, type ShownLink } from "./FileLink";
 import { Dialog, NoticeBar } from "./design";
 import { errorText } from "./ui";
 import "../styles/screens/logbook-photos.css";
@@ -233,7 +234,11 @@ function LogbookPhotoThumbnails({
           {p.type === PDF_TYPE ? (
             <FileText size={28} aria-hidden="true" />
           ) : (
-            <img src={p.url} alt="" />
+            <LinkedImage
+              file={{ kind: "aircraftFile", id: p.uuid }}
+              alt=""
+              fallback={<Camera size={28} aria-hidden="true" />}
+            />
           )}
         </button>
       ))}
@@ -252,7 +257,10 @@ function LogbookPhotoThumbnails({
 // Full size, with the archive form for a writer while connected.
 function PhotoDialog({ s, photo, writer, onClose }: PhotoDialogProps) {
   const { backend, online, connected } = useWorkspace();
-  const url = useOpenableUrl(photo);
+  const link = useFileLink(
+    { kind: "aircraftFile", id: photo.uuid },
+    { keepFresh: true },
+  );
   const [archiving, setArchiving] = useState(false);
   const aircraft = s.aircraft.find((a) => a.uuid === photo.aircraftUuid);
   return (
@@ -263,7 +271,7 @@ function PhotoDialog({ s, photo, writer, onClose }: PhotoDialogProps) {
       className="lp-dialog"
       onClose={onClose}
     >
-      <PhotoMedia photo={photo} url={url} />
+      <PhotoMedia photo={photo} link={link} />
       {writer && backend && online && connected && !archiving && (
         <button
           type="button"
@@ -287,14 +295,12 @@ function PhotoDialog({ s, photo, writer, onClose }: PhotoDialogProps) {
   );
 }
 
-function PhotoMedia({ photo, url }: { photo: AircraftFile; url: string }) {
-  if (photo.type !== PDF_TYPE)
-    return <img className="lp-full" src={photo.url} alt={photo.name} />;
-  return (
-    <a className="button" href={url} target="_blank" rel="noreferrer">
-      Open {photo.name}
-    </a>
-  );
+// An image draws in the dialog; a PDF, or an image not yet linked, offers
+// Open or says why it cannot.
+function PhotoMedia({ photo, link }: { photo: AircraftFile; link: ShownLink }) {
+  if (photo.type === PDF_TYPE || !link.url)
+    return <OpenLink link={link} name={photo.name} />;
+  return <img className="lp-full" src={link.url} alt={photo.name} />;
 }
 
 function useBlobUrl(blob: Blob): string {

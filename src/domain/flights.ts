@@ -391,6 +391,22 @@ export function resequenceReason(
   return `Starting readings recalculated after the flight of ${formatUtcMinute(after.startTime)} UTC was ${verb}.`;
 }
 
+/**
+ * A flight time to the minute in UTC, for text that says UTC. A time written
+ * with an offset is converted, not printed as written:
+ * "2026-10-03T21:30:00-05:00" reads "2026-10-04 02:30".
+ *
+ * @param iso - An ISO 8601 date-time, with "Z" or an offset.
+ * @returns "YYYY-MM-DD HH:MM".
+ * @throws {RangeError} When `iso` is not a date-time.
+ */
+export function formatUtcMinute(iso: string): string {
+  return new Date(iso)
+    .toISOString()
+    .slice(0, ISO_MINUTE_LENGTH)
+    .replace("T", " ");
+}
+
 function restoreBaseline(aircraft: Aircraft): Aircraft {
   return {
     ...aircraft,
@@ -522,13 +538,4 @@ function formatReading(k: ReadingField, v: number | undefined): string {
   return k === "cycles" || k === "landings"
     ? v.toLocaleString("en-US")
     : hours(v);
-}
-
-// A start time may carry an offset ("21:30-05:00"), and the text it goes into
-// says UTC, so it is converted rather than printed as written.
-function formatUtcMinute(iso: string): string {
-  return new Date(iso)
-    .toISOString()
-    .slice(0, ISO_MINUTE_LENGTH)
-    .replace("T", " ");
 }
