@@ -32,6 +32,7 @@ The twice-a-year and yearly tasks have no fixed date: do each with a quarterly r
 - [ ] **Alerts.** Everyone, 2 min. The bell or the **Alerts** page; urgent ones also arrive by email or push ([how](../../wiki/Alerts.md), [rules](../../alerts.md)).
 - [ ] **Held flights.** An administrator, 5 min. Flight log → **Review** each **Needs review** flight; accept (with corrections) or reject. Until then the aircraft's totals leave it out ([how](../../wiki/Flight-Log.md#review-a-held-flight), [rules](../../offline.md#flights-held-for-review)).
 - [ ] **Open problem reports.** A mechanic or administrator, 5 min. **Discrepancies**: anything grounding, deferrals near their deadline, reports with no work order ([how](../../wiki/Discrepancies.md), [rules](../../maintenance-workflows.md)).
+- [ ] **Certificates waiting for approval.** An administrator, 2 min. **Administration → Users** lists them at the top: check each against the real certificate, then **Approve**. Until then it can't give the inspection signoff ([how](../../wiki/Administration.md#approve-a-certificate), [rules](../../user-certifications.md)).
 - [ ] **Sync center.** Each pilot, 1 min. No entries left in **Needs attention** ([how](../../wiki/Offline.md), [rules](../../offline.md#pending-entries-and-the-sync-center)).
 
 ### For Aaron
@@ -83,6 +84,7 @@ Budget 1–2 hours.
 - [ ] **Add `security.txt` to the expiring dates.** Aaron, 5 min. Settings → System → **Deployment expiring dates**, expiring 2027-10-04.
 - [ ] **Renew `security.txt` before 2027-09-04.** Aaron, 15 min. It expires **2027-10-04**. Set `Expires` about 11 months ahead in [`public/.well-known/security.txt`](../../../public/.well-known/security.txt), check `Contact` still reaches someone, deploy.
 - [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry ([airworthiness](../../airworthiness.md)).
+- [ ] **Re-check CodeQL.** Aaron, 5 min. Reported on 19 Nov 2026; GitHub showed it not configured on 20 Nov. Settings → Code security → **CodeQL analysis**: turn the default set-up on if it is off ([set-up step](setup-from-scratch.md#54-repository-settings), [risks R13](../4-money-and-risk/risks.md#r13-public-repository)).
 - [ ] **Fill the password manager.** Aaron, 30 min. Save everything in [its checklist](credentials.md#your-password-manager-should-hold), recovery codes included.
 - [ ] **Narrow the order-health-dashboard token.** Aaron, 10 min. Cloudflare → API Tokens: that project's build token has admin access to every R2 bucket, `angelone-backups` included. Limit it to that project's own bucket, or delete it if unused ([credentials](credentials.md#every-credential)).
 - [ ] **Delete the old sign-in variables.** Aaron, 2 min. Delete any `AUTH_GOOGLE_*` or `AUTH_MICROSOFT_ENTRA_ID_*` variable in Convex; the code no longer reads them ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)).

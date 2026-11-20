@@ -24,7 +24,12 @@ xychart-beta
   line [16, 16, 16, 16]
 ```
 
-Source: the [20-year measurements](#the-20-year-measurements) below. Before history paging there is nothing to plot past two years: the 10 Nov size test read 9.5 MB at one year, 16.0 MB at two (already over one second) and passed 16 MiB at three.
+| Fleet-years of records | 1    | 3    | 10   | 20   |
+| ---------------------- | ---- | ---- | ---- | ---- |
+| MiB read per load      | 7.27 | 7.37 | 7.88 | 8.84 |
+| Convex's limit, MiB    | 16   | 16   | 16   | 16   |
+
+Source: the [20-year measurements](#the-20-year-measurements) below; the 3- and 10-year figures are in [history paging](../../history-paging.md#measured-at-20-fleet-years-s8-h5-release). The table repeats the chart, for where it is not drawn. Before history paging there is nothing to plot past two years: the 10 Nov size test read 9.5 MB at one year, 16.0 MB at two (already over one second) and passed 16 MiB at three.
 
 ## The size measured
 

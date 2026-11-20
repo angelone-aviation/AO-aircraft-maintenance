@@ -144,7 +144,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Impact:** Medium: a weakness still has to get past permission checks that run on the server.
 - **What reduces it:** no secrets in the repository, a secret scan and dependency audit in CI, server-side permission checks and a [disclosure policy](../../../SECURITY.md); private would cost a paid plan ([costs](services-and-costs.md#github)).
 - **Who acts:** Aaron.
-- **Status:** Accepted. Left: CodeQL is recorded as turned on (19 Nov), but on 20 Nov GitHub reported its default set-up as not configured and showed no CodeQL run. Turn it on ([GitHub docs](https://docs.github.com/en/code-security/code-scanning/enabling-code-scanning/configuring-default-setup-for-code-scanning)).
+- **Status:** Accepted. Left: CodeQL was reported on 19 Nov; GitHub showed its default set-up as not configured, with no CodeQL run, on 20 Nov; Aaron to re-check and turn it on ([GitHub docs](https://docs.github.com/en/code-security/code-scanning/enabling-code-scanning/configuring-default-setup-for-code-scanning)).
 
 ### R14. No second factor (2FA)
 

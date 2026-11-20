@@ -33,7 +33,10 @@ The review of the handbook and wiki that followed release 5:
 
 - fixes to the handbook and the user guide, each checked against the code;
 - diagrams, charts and timelines where they shorten the text;
-- a Credentials page in the handbook.
+- a Credentials page in the handbook;
+- **Deployment expiring dates** in Settings names the FAA DRS API key as an example, in place of the removed sign-in client secret (text only);
+- the Deploy workflow's backup tick-box asks that the password-manager copy of `CREDENTIALS_ENCRYPTION_KEY` is current (label only);
+- a browser test: no technician or inspection signoff is offered until a completion date is saved.
 
 ## 20 Nov 2026, release 5: documentation and password-only sign-in
 
@@ -213,7 +216,7 @@ Bug-hunt and stale-screen findings fixed in part or left open before, finished h
 | Upload checks | The file-contents check covers work-order, job-card, photo and license uploads, HEIC license copies, PDFs with leading bytes, and names each upload's own types; a manual that is not a PDF is deleted at once | `e6c928e`, `589ba16`, `8eed677`, `730b68e`, `50e05c2` |
 | Flight review | Every flight review needs a request id, so it is never applied twice                                                                                                                                           | `c37bf0c`                                             |
 | C1, C4        | Cloudflare's "Add security headers" transform and Bot Fight Mode turned off (19 Nov, Cloudflare settings)                                                                                                      | —                                                     |
-| P4            | CodeQL default set-up recorded as turned on (19 Nov, a GitHub setting). On 20 Nov GitHub reported it not configured ([risks R13](../4-money-and-risk/risks.md#r13-public-repository))                          | —                                                     |
+| P4            | CodeQL default set-up reported on (19 Nov, a GitHub setting); GitHub showed it not configured on 20 Nov; Aaron to re-check ([risks R13](../4-money-and-risk/risks.md#r13-public-repository))                   | —                                                     |
 
 ### Other changes in the release
 
