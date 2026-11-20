@@ -1,6 +1,6 @@
 # Dropbox records copy
 
-Policy: [ADR-0011](../adr/0011-readable-records-copy-in-dropbox.md). The nightly backup job ([backup and restore](backup-restore.md)) turns the Convex export into one formatted Excel workbook and adds it to a Dropbox folder. It is a copy for reading; the aircraft logbooks and the encrypted R2 backup are the records. A sample built from the demo program is in [`docs/samples/angel-one-records-sample.xlsx`](../samples/angel-one-records-sample.xlsx).
+Policy: [ADR-0011](../adr/0011-readable-records-copy-in-dropbox.md). The nightly backup job ([backup and restore](backup-restore.md)) turns the Convex export into one formatted Excel workbook and adds it to a Dropbox folder. It is a copy for reading; the aircraft logbooks and the R2 backup are the records. A sample built from the demo program is in [`docs/samples/angel-one-records-sample.xlsx`](../samples/angel-one-records-sample.xlsx).
 
 | File in the app folder                    | Made                                 | Kept                             |
 | ----------------------------------------- | ------------------------------------ | -------------------------------- |

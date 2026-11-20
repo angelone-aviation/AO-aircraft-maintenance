@@ -127,7 +127,7 @@ flowchart TB
     CI["CI"] -->|green on main| Deploy["Deploy"]
     Nightly["Nightly backup"]
   end
-  R2[("Cloudflare R2<br/>encrypted backups")]
+  R2[("Cloudflare R2<br/>backups, unencrypted")]
 
   People --> App
   App -->|live sync| Fns
@@ -297,16 +297,16 @@ _Departure: how a change reaches the hangar._
 
 The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.jsonc`, with the security headers in `public/_headers`) and the backend on Convex.
 
-| Step                   | What happens                                                                                                                                                                                           |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                                                              |
-| CI finishes green      | **Deploy** starts by itself, if that commit is still the newest on `main`: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare |
-| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                      |
-| Every night, 08:41 UTC | **Nightly backup** copies production off-site: encrypted, to Cloudflare R2, plus an optional readable Excel workbook in Dropbox                                                                        |
+| Step                   | What happens                                                                                                                                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                                                                            |
+| CI finishes green      | **Deploy** starts by itself, if that commit is still the newest on `main`: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare               |
+| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                                    |
+| Every night, 08:41 UTC | **Nightly backup** copies production off-site to Cloudflare R2, **not encrypted** by Aaron's decision ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)), plus an optional readable Excel workbook in Dropbox |
 
 - First-time setup (Cloudflare account and API token, domain, Convex deploy key, GitHub secrets and the `production` environment), releasing and rollback are in the [release runbook](docs/runbooks/release.md).
 - Without a terminal, set up a new, empty production deployment with the manual **First-time setup** workflow, once, before the first Deploy: see [First-time setup (no terminal)](docs/runbooks/release.md#first-time-setup-no-terminal).
-- Before deploying by hand, take a Convex backup (dashboard > Backups) and save the deployment's environment variables as described in the [backup runbook](docs/runbooks/backup-restore.md). Running the nightly backup by hand, checking it and restoring are in the same runbook, and `npm run test:backup` tests it without credentials.
+- Before deploying by hand, take a Convex backup (dashboard > Backups). Backups are not encrypted, by Aaron's decision on 20 Nov 2026: anyone holding the R2 keys or the Cloudflare login can read every record, user and password hash in them, and the nightly job does not save the environment variables until a backup key is set ([backup runbook](docs/runbooks/backup-restore.md#to-turn-encryption-on)). Running the nightly backup by hand, checking it and restoring are in the same runbook, and `npm run test:backup` tests it without credentials.
 - The settings that are set on the deployment are listed under [Settings that live on the deployment](#settings-that-live-on-the-deployment).
 - Never upload `.env.*`, local backend state, or test credentials. No production deployment is performed by the setup scripts.
 

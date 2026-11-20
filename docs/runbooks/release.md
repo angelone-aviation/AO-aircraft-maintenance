@@ -85,7 +85,7 @@ Merging a pull request into `main` is the release: CI runs on the merge commit, 
 
 - [ ] CI is green on the pull request.
 - [ ] You read what changed. Schema changes must accept the documents already stored (widen, migrate, then tighten in a later release); otherwise the Convex push fails.
-- [ ] You took a Convex backup (dashboard → Backups → **Backup now**, including file storage) and saved the environment variables ([backup and restore](backup-restore.md)).
+- [ ] You took a Convex backup (dashboard → Backups → **Backup now**, including file storage) and, if Aaron keeps a copy of the environment variables, it is current ([backup and restore](backup-restore.md#when-an-environment-variable-changes)).
 
 Then merge and watch **CI** and **Deploy** under Actions. The Deploy run summary shows the commit, the Convex URL and the Cloudflare version tag.
 
