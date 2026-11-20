@@ -38,9 +38,10 @@ import type { ManagedRecord } from "../src/domain/management";
 
 /**
  * Applies one parts-request command in the active Flight Program, with the
- * stock it moves. Saving an active recurring list also writes the requests
- * the applier creates for the open work orders on its aircraft, each with its
- * change-log row.
+ * stock it moves. An issue also writes the work-order cost records that
+ * record its price (decision D13). Saving an active recurring list also
+ * writes the requests the applier creates for the open work orders on its
+ * aircraft. Each change has its change-log row.
  *
  * @param payload - The request command, as JSON.
  * @returns The uuid of the request the command changed.
@@ -64,6 +65,12 @@ export const execute = mutation({
           changedRequests(s, docs.partsRequests, r),
         );
         await patchStock(ctx, docs.management, s.management ?? []);
+        await writeChanged(
+          ctx,
+          "costs",
+          docs.costs,
+          pricedCosts(s, docs.costs),
+        );
       },
       audit: (log, { snapshot }) => log.record(snapshot.audit),
       returns: (r) => r.uuid,
@@ -82,6 +89,16 @@ function changedRequests(
   return (s.partsRequests ?? []).filter(
     (r) => r.uuid === saved.uuid || !stored.has(r.uuid),
   );
+}
+
+// The cost records an issue priced: new ones, and stored ones at a new
+// version. Only these are written, so a loaded row the command left alone is
+// never rewritten.
+function pricedCosts(s: Snapshot, loaded: Doc<"costs">[]) {
+  const stored = new Map(
+    decode("costs", loaded).map((r) => [r.uuid, r.version]),
+  );
+  return (s.costs ?? []).filter((r) => stored.get(r.uuid) !== r.version);
 }
 
 // Parts commands change stock quantities, never a record's columns, so a
@@ -103,8 +120,9 @@ async function patchStock(
 // ADs and inspections load whole (H5 keeps requests and orders complete). Of
 // history, only what the request's source names: its work order, its job
 // card (live or archived) and the order owning that card, with those orders'
-// cards, archived cards and cost records; its problem report; and the
-// program's open work orders, which a saved recurring list serves.
+// cards, archived cards and cost records, which an issue's price goes on
+// (D13); its problem report; and the program's open work orders, which a
+// saved recurring list serves.
 async function loadRequest(
   ctx: MutationCtx,
   state: ProgramContext,

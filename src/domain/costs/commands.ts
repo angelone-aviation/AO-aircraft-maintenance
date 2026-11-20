@@ -2,13 +2,12 @@
  * Responsibility: Applying cost commands: labor and other costs, part unit
  *   costs, budgets and the labor rate, each with its change-log row.
  * Layer: Domain. An applier on a working snapshot; no I/O, no React.
- * Dependencies: ../model, ../programs, ../workOrders, ../changeLog,
- *   ../rejection, ./records, ./units, ./workOrderCosts.
+ * Dependencies: ../model, ../programs, ../workOrders, ../rejection,
+ *   ./records, ./units, ./workOrderCosts, ./save.
  */
 import { can, latestLocalDate, type Snapshot } from "../model";
 import { activeProgram, programPermission } from "../programs";
 import { isOpenWorkOrder, type WorkOrder } from "../workOrders";
-import { auditEntry } from "../changeLog";
 import { Rejection } from "../rejection";
 import {
   costCommandSchema,
@@ -24,6 +23,7 @@ import {
   laborRate,
   partIssues,
 } from "./workOrderCosts";
+import { emptyWorkOrderCost, saveCostRecord } from "./save";
 
 /**
  * Applies one cost command to the snapshot and returns the changed record.
@@ -79,12 +79,6 @@ type WorkOrderCommand = Exclude<
   CostCommand,
   { action: "settings.laborRate" | "budget.set" }
 >;
-interface CostChange {
-  action: CostCommand["action"];
-  program: string;
-  now: number;
-  aircraftUuid?: string;
-}
 
 const isAdmin = (s: Snapshot) => programPermission(s, "admin");
 
@@ -144,20 +138,6 @@ function budgetRecord(
     aircraftUuid: c.aircraftUuid,
     year: c.year,
     amountCents: c.amountCents,
-  };
-}
-
-function emptyWorkOrderCost(w: WorkOrder, program: string): WorkOrderCost {
-  return {
-    uuid: crypto.randomUUID(),
-    version: 0,
-    programUuid: program,
-    kind: "workOrder",
-    aircraftUuid: w.aircraftUuid,
-    workOrderUuid: w.uuid,
-    labor: [],
-    other: [],
-    partUnitCosts: [],
   };
 }
 
@@ -232,30 +212,4 @@ function removeOther(uuid: string, record: WorkOrderCost) {
   if (!record.other.some((e) => e.uuid === uuid))
     throw new Rejection("Cost entry not found.");
   return { other: record.other.filter((e) => e.uuid !== uuid) };
-}
-
-// Cost audit entries carry no aircraft so only administrators see them.
-function saveCostRecord(
-  s: Snapshot,
-  { action, program, now, aircraftUuid }: CostChange,
-  next: CostRecord,
-) {
-  const before = s.costs?.find((r) => r.uuid === next.uuid);
-  s.costs = [...(s.costs ?? []).filter((r) => r.uuid !== next.uuid), next];
-  const entry = auditEntry(
-    s,
-    {
-      programUuid: program,
-      action: `cost.${action}`,
-      entityUuid: next.uuid,
-      reason: aircraftUuid
-        ? s.aircraft.find((a) => a.uuid === aircraftUuid)?.registration
-        : undefined,
-      before,
-      after: next,
-    },
-    now,
-  );
-  s.audit = [entry, ...s.audit];
-  return next;
 }
