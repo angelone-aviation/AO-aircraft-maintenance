@@ -5,7 +5,7 @@
  * Layer: Server. Convex reads by the window's indexes; the rule that picks
  *   from them is the domain's (workspaceWindow, src/domain/purchasingWindow).
  * Dependencies: ./_generated (types), ./collections, ./programContext,
- *   ./workingSet, ./purchaseAllocations, ./historyWindow (types),
+ *   ./workingSet, ./purchasingKeys, ./historyWindow (types),
  *   src/domain (retention, purchasingWindow).
  *
  * As in historyWindow.ts, each read is a superset of what the window keeps,

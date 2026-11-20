@@ -5,7 +5,7 @@
  * Layer: Server. Convex reads for convex/history.ts; the rules are the
  *   domain's (src/domain/purchasingWindow, retention).
  * Dependencies: ./_generated (types), ./collections, ./historyScan,
- *   ./purchaseAllocations, src/domain (retention, purchasingWindow,
+ *   ./purchasingKeys, src/domain (retention, purchasingWindow,
  *   partsRequests, programs, model).
  *
  * A row is judged as historyPage judges it on the caller's scoped snapshot

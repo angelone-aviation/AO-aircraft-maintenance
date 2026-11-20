@@ -665,8 +665,8 @@ async function seedWorld(ctx: MutationCtx): Promise<World> {
 
 // One edge of each purchasing rule per aircraft (tests/fixtures/
 // purchasingEdges.ts), counted toward its open work order, with the
-// allocation rows the app writes beside each order; P1 also has a request
-// for stock.
+// lookup keys the app writes beside each request and order; P1 also has a
+// request for stock.
 async function seedPurchasing(
   ctx: MutationCtx,
   aircraftUuid: string,

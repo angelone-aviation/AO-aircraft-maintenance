@@ -7,7 +7,7 @@
  * Layer: Server. Public Convex queries; the window, order and scoping rules
  *   come from src/domain.
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./collections, ./historyScan, ./purchasingPages, ./purchaseAllocations,
+ *   ./collections, ./historyScan, ./purchasingPages, ./purchasingKeys,
  *   ./costLedger,
  *   ./workingSet, ./userErrors, ./validators, src/domain (retention,
  *   purchasingWindow, historyReads, costs, programs, model, workOrders,

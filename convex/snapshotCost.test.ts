@@ -47,7 +47,7 @@ const ROLES = ["admin", "pilot", "owner", "board"] as const;
 // A kept work order's job cards, archived job cards, costs, files and the
 // evidence on its cards.
 const LOOKUPS_PER_ORDER = 5;
-// A request kept from before the window: its allocation rows and the orders
+// A request kept from before the window: its allocation keys and the orders
 // they name, read so its progress is whole (convex/windowedPurchasing.ts).
 const LOOKUPS_PER_OLDER_REQUEST = 3;
 // Seeding about ten thousand rows takes a while on a shared machine.
