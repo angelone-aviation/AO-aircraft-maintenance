@@ -166,7 +166,7 @@ The record of who changed what and when, with before and after state and the rea
 _Avoid_: log (bare), history (bare)
 
 **Weekly summary**:
-The Flight Program administrator's review of a period of the change log: entries counted by person and action family, the notable events (dispatch overrides, permission and account changes, archives, corrections) and the number of refused sign-ins.
+The Flight Program administrator's review of a period of the change log: entries counted by person and action family, the notable events (dispatch overrides, permission and account changes, archives, corrections) and the number of refused sign-ins. On screen it is the **Summary** tab of Change history, beside **Change log**.
 _Avoid_: audit report, activity digest
 
 **Command**:

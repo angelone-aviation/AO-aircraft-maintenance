@@ -1,6 +1,6 @@
 # PDF flight plans
 
-Open **Flight plans → Upload Flight Plan PDF**. Select the original single-page ICAO PDF from the same planning app as the supplied sample. Parsing happens in the browser using PDF.js; no external AI service or OCR is involved. The original PDF is not stored. The extracted fields, filename, and SHA-256 fingerprint are saved after review.
+Open **Flight plans → Upload flight plan PDF**. Select the original single-page ICAO PDF from the same planning app as the supplied sample. Parsing happens in the browser using PDF.js; no external AI service or OCR is involved. The original PDF is not stored. The extracted fields, filename, and SHA-256 fingerprint are saved after review.
 
 The review form extracts the aircraft identification and type, ICAO flight type and rules, date of flight, UTC departure, departure/destination/alternate airports, total estimated elapsed time, cruise speed/level, wrapped route, fuel endurance, persons onboard, pilot text, equipment codes, and Item 18 information. Graphical emergency-equipment cross-outs are not imported. Missing required values must be supplied before saving. This importer is specific to the fixed template; scanned and multipage PDFs are rejected.
 

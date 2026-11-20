@@ -35,8 +35,8 @@ Deadlines and remaining usage are visible in the component details. Status disti
 
 ## Movements and baselines
 
-- Components may be created in inventory or installed on an aircraft with verified historical readings.
-- Current movements use today's date and aircraft readings, matching the legacy movement form. Removal freezes current usage; installation on the selected aircraft resumes tracking without losing accumulated usage.
+- New components are received into inventory. Only aircraft setup creates a component already installed, with verified historical readings.
+- Installations and removals go through a work order, unlike the legacy movement form: the movement is planned on an open work order and applied when that order closes, with its completion date and aircraft readings ([component inventory](component-inventory.md)). A direct install or remove is refused with "Installations and removals must be completed through a work order." Removal freezes current usage; installation on the selected aircraft resumes tracking without losing accumulated usage.
 - Positions allow multiple engines/propellers on the same aircraft. The former single-engine/single-propeller restriction is removed.
 - **Set baseline** records verified TSN, optional TSO/TSR, cycles, prior service days, and aircraft installation readings with automatic change history. It supports historical installations without pretending that today's counters are historical readings.
 - Overhaul resets TSO and repair resets TSR; neither resets TSN. Both require the component to be in inventory.

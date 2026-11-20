@@ -21,7 +21,7 @@ flowchart LR
     Fns["queries, mutations, actions"]
     DB[("database<br/>schema.ts")]
     Files[("file storage<br/>manuals, attachments, Form 337s")]
-    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>urgent alert check 13:10 UTC<br/>cost ledger reconcile 09:37 UTC<br/>upload cleanup hourly<br/>sign-in records cleanup Sundays 07:20 UTC"]
+    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>urgent alert check 13:10 UTC<br/>cost ledger reconcile 09:37 UTC<br/>upload cleanup hourly :15<br/>unreferenced file sweep hourly :45<br/>sign-in records cleanup Sundays 07:20 UTC"]
   end
   subgraph Ext["Outside services (Convex actions only)"]
     FAA["FAA DRS API"]
@@ -70,7 +70,8 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | `src/styles` | UI | Tokens, shared design, per-screen CSS (`screens/`) | Encode behaviour |
 | `src/domain` | Domain | Types and zod schemas for stored payloads (`model.ts` plus one module per feature); appliers `(snapshot, command) => …` that mutate a working snapshot (some also push their own audit entries; for the rest the Convex mutation's `audit` hook composes the rows); rules (status, dispatch gate, due dates, close-out, flight submission); permissions (`can`, `scopedSnapshot`) | Import React, Zustand, Convex, `src/data` or `src/components`; touch browser storage; do network I/O (see §5 for current exceptions) |
 | `src/data` | Data | Workspace store and outbox (`store.ts`); `Backend` interface and Convex adapter (`backend.ts`); demo adapter (`demoBackend.ts`) and seed (`demo.ts`); IndexedDB (`local.ts`); kept manuals (`deviceManuals.ts`); PDFs and reports (`*Pdf.ts`, `adReport.ts`, `aircraftStatusReport.ts`); file importers (`adImport.ts`, `fmd.ts`) | Render UI or import `src/components`; decide a permission the server does not also decide |
-| `convex` | Server | Schema, auth, every public function, permission checks (`access.ts`, `programContext.ts`), the command transaction (`runCommand.ts`), the audit writer, crons, auth HTTP routes, integrations, credential encryption (`secrets.ts`) | Import `src/data` or `src/components` outside tests; return a secret; insert into `audit` except through `writeAudit` |
+| `convex` | Server | Schema, auth, every public function, permission checks (`access.ts`, `programContext.ts`), the command transaction (`runCommand.ts`), the audit writer, crons, HTTP routes (Convex Auth's, and file links in `http.ts`), integrations, credential encryption (`secrets.ts`) | Import `src/data` or `src/components` outside tests; return a secret; insert into `audit` except through `writeAudit` |
+| `worker` | Config | The Cloudflare Worker `wrangler.jsonc` names: answers requests no built file matches, with a 404 for a missing bundle, else the app shell | Hold app logic or secrets |
 | `convex/_generated` | Generated | Convex codegen (`api`, `dataModel`) | Be edited by hand |
 | `scripts` | Script | Setup (`configure-auth.mjs`, `bootstrap-admin.mjs`), local smoke test, `serve-dist.mjs`, CSP check and deploy-time CSP pin, icons; nightly backup and records workbook (`scripts/backup/`) | Print secrets; import `src/data` except test fixtures |
 | `tests`, `*.test.ts` | Test | Playwright specs (`tests/e2e`) and fixtures; vitest and convex-test suites beside the code they test | Ship in the build |
@@ -78,7 +79,7 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | `.claude` | Tooling | Standards hooks and settings (owner-only, do not edit); vendored skills (`npx skills update` only) | Be edited by agents |
 | `docs` | Docs | Feature behaviour, ADRs, runbooks, architecture report, research | Contradict an accepted ADR without a new one |
 
-Also at the root: `public/` (headers, icons, fonts), `wrangler.jsonc` (Cloudflare site), `worker/` (the Worker that answers requests no built file matches: a 404 for a missing bundle, else the app shell), `legecy php_project/` (retired PHP system, reference only).
+Also at the root: `public/` (headers, icons, fonts), `wrangler.jsonc` (Cloudflare site), `legecy php_project/` (retired PHP system, reference only).
 
 ## 4. Data flow
 
@@ -125,7 +126,7 @@ sequenceDiagram
 ```
 
 - A Convex mutation is one transaction: any throw writes nothing. Expected domain rejections become `ConvexError` (the `expose` option) so users see the message in production.
-- 22 mutations use `runCommand`. Administration, upload and a few others check access themselves and write the change log through `audit()`, or `writeAudit()` directly. The list, and what ADR-0003 still asks for (request ids on every command, uniform stale-version rejection), is in the architecture report's "Done since this report".
+- 24 mutations use `runCommand`. Administration, upload and a few others check access themselves and write the change log through `audit()`, or `writeAudit()` directly. The list, and what ADR-0003 still asks for (request ids on every command, uniform stale-version rejection), is in the architecture report's "Done since this report".
 - Demo: `demoBackend.modify()` clones the full snapshot, runs the same applier, saves it, and calls `receive(demoWorkspaceView(s))`. Demo writes need `online`.
 
 **Offline outbox** (`src/data/store.ts`, `src/domain/flightSubmission.ts`, `convex/operations.ts` `submit`):
@@ -165,7 +166,7 @@ rg -n "convex/|@convex-dev" src/components                                      
 Invariants:
 
 1. **Business rules live once, in `src/domain`.** Both adapters and the server call the same functions; components shape forms into commands and display results.
-2. **The server enforces every permission.** Every public query, mutation and action reaches `checkContext`, `authorized`, `admin`, `currentUser` or `activeIdentity` (directly, through `runCommand`, or through a file-local helper such as `access()` or `authorize()`); actions first call an internal function that checks. Apart from the Convex Auth library's sign-in endpoints, the public functions without a check are `identities.providers`, which lists the enabled sign-in buttons, and `pushSubscriptions.publicKey`, which returns the deployment's VAPID public key (public by design: every browser that subscribes receives it; it also tells a caller whether push is configured, nothing more). The HTTP route `/files/v1/<token>` (`convex/fileLinks.ts`) takes no session either: its signed, five-minute token is the credential, issued only by `fileLinks.links` after the snapshot's own listing rule ([file links](docs/file-links.md)). Client checks (`can()` in `enqueue`, hidden navigation) are convenience only. `checkContext` also rejects a stale `programUuid` and every call from an owner view (owners read only the snapshot).
+2. **The server enforces every permission.** Every public query, mutation and action reaches `checkContext`, `authorized`, `admin`, `currentUser` or `activeIdentity` (directly, through `runCommand`, or through a file-local helper such as `access()` or `authorize()`); actions first call an internal function that checks. Apart from the Convex Auth library's sign-in endpoints, the public functions without a check are `identities.providers`, which lists the enabled sign-in buttons, and `pushSubscriptions.publicKey`, which returns the deployment's VAPID public key (public by design: every browser that subscribes receives it; it also tells a caller whether push is configured, nothing more). The HTTP route `/files/v1/<token>` (`convex/fileTokens.ts` `serve`, registered in `convex/http.ts`) takes no session either: its signed, five-minute token is the credential, issued only by `fileLinks.links` after the snapshot's own listing rule ([file links](docs/file-links.md)). Client checks (`can()` in `enqueue`, hidden navigation) are convenience only. `checkContext` also rejects a stale `programUuid` and every call from an owner view (owners read only the snapshot).
 3. **The change log is append-only.** `writeAudit` (`convex/access.ts`) is the only insert into `audit`, and no code patches or deletes a row. A transfer adds `transferredAudit` links instead of re-tagging rows. Corrections append a new entry with a reason. Protection beyond the code: [ADR-0005](docs/adr/0005-audit-log-protection-by-access-and-backups.md), [ADR-0010](docs/adr/0010-one-convex-administrator.md).
 4. **The demo adapter goes through the same domain rules.** `demoBackend` calls the same appliers and `submitOperation`; a rejected demo outbox entry is rethrown as `ConvexError` so the Sync center treats it like a server rejection.
 5. **No secrets reach the browser.** The bundle reads only `VITE_CONVEX_URL`, `VITE_DEMO_MODE`, `VITE_ALLOW_DEMO`, and the public Sentry DSN and release (`VITE_SENTRY_DSN`, `VITE_SENTRY_RELEASE`). Integration keys live in Convex environment variables or in rows sealed with AES-GCM (`convex/secrets.ts`, `CREDENTIALS_ENCRYPTION_KEY`), are decrypted only inside server actions, and status queries say whether a key is configured, never what it is. The key that signs file links is derived from the credential key on the server (`fileLinkKey`) and never leaves it.

@@ -1,10 +1,8 @@
 # Angel One
 
-> **New here?** Start with the [Angel One handbook](docs/handbook/README.md): what the app is, how it works, how to run it, what it costs and what could go wrong.
+> **New here?** Start with the [Angel One handbook](docs/handbook/README.md): what the app is, how it works, how to run it, what it costs and what could go wrong. To build it from nothing, follow [Set up from scratch](docs/handbook/3-running-it/setup-from-scratch.md); to learn the screens, read the [user guide](docs/wiki/Home.md).
 
 **Aircraft operations and maintenance records for a mission flight program.**
-
-**New here?** [Set up from scratch](docs/handbook/3-running-it/setup-from-scratch.md): every account, secret and step from nothing to a live app and a local copy.
 
 Angel One keeps the maintenance and status records a 14 CFR Part 91 operator must hold for its aircraft, and runs the daily work that produces them: flight logging, discrepancies, inspections, work orders, parts and airworthiness directives. Everything is scoped by **Flight Program** with permission groups, and pilots can log flights and report discrepancies with no signal.
 
@@ -12,13 +10,13 @@ Angel One keeps the maintenance and status records a 14 CFR Part 91 operator mus
   <img src="docs/previews/desktop.png" alt="The Overview on a desktop: the grouped sidebar, the fleet counts and three fictional demo aircraft with their status, hours and next inspection due" width="880">
 </p>
 
-| At a glance       |                                                                                                                                                            |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                                      |
-| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                                |
-| **Status**        | Deployed. The redesign was pushed on 12 November 2026 and is releasing; real records begin when the program decides. See [Project status](#project-status) |
-| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                                  |
-| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                       |
+| At a glance       |                                                                                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                               |
+| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                         |
+| **Status**        | Deployed. Three releases reached production on 20 November 2026; real records begin when the program decides. See [Project status](#project-status) |
+| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                           |
+| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                |
 
 > [!IMPORTANT]
 > Angel One generates logbook entry wording and is the system of record for **status records**. It is not the signed maintenance record ([ADR-0004](docs/adr/0004-logbook-generator-and-status-record-system.md)).
@@ -131,7 +129,7 @@ flowchart TB
     CI["CI"] -->|green on main| Deploy["Deploy"]
     Nightly["Nightly backup"]
   end
-  R2[("Cloudflare R2<br/>backups, unencrypted")]
+  R2[("Cloudflare R2<br/>backups, unencrypted<br/>unless a key is set")]
 
   People --> App
   App -->|live sync| Fns
@@ -301,12 +299,12 @@ _Departure: how a change reaches the hangar._
 
 The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.jsonc`, with the security headers in `public/_headers`) and the backend on Convex.
 
-| Step                   | What happens                                                                                                                                                                                                         |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                                                                            |
-| CI finishes green      | **Deploy** starts by itself, if that commit is still the newest on `main`: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare               |
-| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                                    |
-| Every night, 08:41 UTC | **Nightly backup** copies production off-site to Cloudflare R2, **not encrypted** by Aaron's decision ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)), plus an optional readable Excel workbook in Dropbox |
+| Step                   | What happens                                                                                                                                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                                                                                                        |
+| CI finishes green      | **Deploy** starts by itself, if that commit is still the newest on `main`: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare                                           |
+| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                                                                |
+| Every night, 08:41 UTC | **Nightly backup** copies production off-site to Cloudflare R2, **not encrypted** unless a backup key is set, by Aaron's decision ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)), plus an optional readable Excel workbook in Dropbox |
 
 - First-time setup (Cloudflare account and API token, domain, Convex deploy key, GitHub secrets and the `production` environment), releasing and rollback are in the [release runbook](docs/runbooks/release.md).
 - Without a terminal, set up a new, empty production deployment with the manual **First-time setup** workflow, once, before the first Deploy: see [First-time setup (no terminal)](docs/runbooks/release.md#first-time-setup-no-terminal).
@@ -370,9 +368,9 @@ _En route: keeping it flying._
 
 ### Project status
 
-**Deployed, with real records beginning when the program decides.** There is no launch date. The redesign (a new look, grouped navigation, charts and a rebuilt Discrepancies screen, with the same data, permissions and server calls) was pushed to `main` on 12 November 2026 and is releasing through CI and Deploy. The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, switching on error monitoring, and acceptance testing on actual pilot and mechanic devices.
+**Deployed, with real records beginning when the program decides.** There is no launch date. Three releases reached production on 20 November 2026, ending at `e99058c`: every open bug and decision ([changelog](docs/handbook/5-history/changelog.md)), history paging, and the purchasing window with lighter saves and a bounded Weekly summary. The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, the backup heartbeat secret, and acceptance testing on actual pilot and mechanic devices. Outside monitoring is Better Stack, set up on 20 November; Sentry error reporting stays off for now ([monitoring runbook](docs/runbooks/monitoring.md)).
 
-- **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code. A [second review](docs/security/review-2026-11-04.md) on 2026-11-04 found nothing Critical or High; its fixes are merged and its open items are listed there. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+- **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code. A [second review](docs/security/review-2026-11-04.md) on 2026-11-04 found nothing Critical or High; its fixes are merged, its two Cloudflare dashboard findings (C1, C4) were closed on 19 November, and its remaining open items are listed there. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 - **Bug hunts**: two full rounds of testing before real records begin, on [3 November](docs/qa/bug-hunt-2026-11-03/README.md) and [10 November](docs/qa/bug-hunt-2026-11-10/README.md). Each lists every finding, its fix or the decision it waits on, and a script that reproduces it.
 - **Known limit**: the workspace loads a retention window of history, and older records page in ([history paging](docs/history-paging.md), ADR-0013). Since H5, closed parts requests, purchase orders and flight plans page in too; ADs' compliance history and component movements still load whole, and Convex caps each request at 16 MiB read. At the size test's volume (six aircraft, 300 flights, 30 parts requests and 20 purchase orders a year each) an administrator's workspace reads 7.3 MiB at one year and 8.8 MiB at twenty, growing about 0.1 MiB a year, and every save stays under 3.5 MiB ([measured](docs/history-paging.md#measured-at-20-fleet-years-s8-h5-release)). Two known exceptions: accepting a held flight from long ago replays its aircraft's flights and passes Convex's one-second limit at about 20 years (S9), and a Weekly summary of a month or longer can say it was cut short. If the load fails, the app shows a page saying so instead of a blank screen.
 - **Recurring tasks**: the quarterly and yearly upkeep is in the [recurring tasks table](docs/go-live-checklist.md#recurring-tasks).

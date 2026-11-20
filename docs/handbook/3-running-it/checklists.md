@@ -65,7 +65,7 @@ Budget 1–2 hours.
 - [ ] **Add `security.txt` to Expiring dates.** Aaron, 5 min. Settings → System → Expiring dates, expiring 2027-10-04.
 - [ ] **Renew `security.txt` before 2027-09-04.** Aaron, 15 min. It expires **2027-10-04**. Set `Expires` about 11 months ahead in [`public/.well-known/security.txt`](../../../public/.well-known/security.txt), check `Contact` still reaches someone, deploy.
 - [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry ([airworthiness](../../airworthiness.md)).
-- [ ] **Keep the credential key safe.** Aaron, 5 min, once unencrypted backups ship (`work/backup-plain`). Save `CREDENTIALS_ENCRYPTION_KEY` in his password manager: the unencrypted job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.
+- [ ] **Keep the credential key safe.** Aaron, 5 min, once the release with unencrypted backups (ADR-0014) is deployed. Save `CREDENTIALS_ENCRYPTION_KEY` in his password manager: the unencrypted job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.
 
 ## Whenever it happens
 
