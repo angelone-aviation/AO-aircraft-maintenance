@@ -4,7 +4,7 @@
  *   the derived columns of what it writes.
  * Layer: Test. convex-test suite with fake timers; never shipped in the build.
  * Dependencies: convex/workOrderCopies, convex/workOrders, convex/schema,
- *   src/domain (taskCards, workOrders), src/data/demo and tests/fixtures
+ *   convex/collections, src/domain (taskCards, workOrders), src/data/demo and tests/fixtures
  *   (workOrders, taskCards, derivedColumns).
  */
 import { convexTest } from "convex-test";
@@ -18,6 +18,7 @@ import {
 } from "../tests/fixtures/workOrders";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { saveTaskCard } from "../src/domain/taskCards";
+import { encode } from "./collections";
 import {
   newWorkTask,
   workOrderSchema,
@@ -26,6 +27,7 @@ import {
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import {
   expectDerivedColumns,
+  expectRecordNumbers,
   forgetDerivedColumns,
 } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
@@ -63,11 +65,7 @@ async function setup(count = 25) {
         title: `Template ${i}`,
         cardNumber: `TEST-${i}`,
       };
-      await ctx.db.insert("taskCards", {
-        uuid: card.uuid,
-        aircraftUuid: card.aircraftUuid,
-        payload: JSON.stringify(card),
-      });
+      await ctx.db.insert("taskCards", encode("taskCards", card));
     }
     return `${userId}|${session}`;
   });
@@ -124,11 +122,7 @@ async function addTemplateAfterItem(completed: boolean) {
     ({ order } = await read());
   }
   await t.run((ctx) =>
-    ctx.db.insert("taskCards", {
-      uuid: original.uuid,
-      aircraftUuid: original.aircraftUuid,
-      payload: JSON.stringify(original),
-    }),
+    ctx.db.insert("taskCards", encode("taskCards", original)),
   );
   return { ...context, save, order };
 }
@@ -183,6 +177,11 @@ it("stores the derived columns on each copy, and on the order whose progress it 
     copies.map((c) => c.uuid),
   );
   await expectDerivedColumns(t, "workOrders", [command.uuid]);
+  await expectRecordNumbers(
+    t,
+    "taskCards",
+    copies.map((c) => c.uuid),
+  );
 });
 it("retains captured template contents and versions when templates change or disappear", async () => {
   const { t, start, read } = await setup(2);
@@ -396,11 +395,7 @@ it("copies templates added to the library after their item was added", async () 
   await start();
   expect((await read()).jobs).toHaveLength(0);
   await t.run((ctx) =>
-    ctx.db.insert("taskCards", {
-      uuid: original.uuid,
-      aircraftUuid: original.aircraftUuid,
-      payload: JSON.stringify(original),
-    }),
+    ctx.db.insert("taskCards", encode("taskCards", original)),
   );
   await user.mutation(api.workOrders.save, {
     programUuid: "demo-program",
@@ -558,11 +553,7 @@ it("caps each stored batch's template text, giving a larger template a batch of 
           uuid: crypto.randomUUID(),
         })),
       };
-      await ctx.db.insert("taskCards", {
-        uuid: card.uuid,
-        aircraftUuid: card.aircraftUuid,
-        payload: JSON.stringify(card),
-      });
+      await ctx.db.insert("taskCards", encode("taskCards", card));
     }
   });
   await start();

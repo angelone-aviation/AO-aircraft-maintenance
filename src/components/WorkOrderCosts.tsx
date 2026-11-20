@@ -261,7 +261,12 @@ function PartCosts({ view }: ViewProps) {
           </thead>
           <tbody>
             {parts.map((part) => (
-              <PartRow key={part.stockUuid} part={part} view={view} />
+              <PartRow
+                // A stock item issued at two prices has two lines.
+                key={`${part.stockUuid} ${part.unitCents ?? ""}`}
+                part={part}
+                view={view}
+              />
             ))}
           </tbody>
         </table>

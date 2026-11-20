@@ -59,13 +59,12 @@ const NOT_FOR_REDUCED_VIEWS = [
   "workOrderFiles",
   "inventoryFiles",
 ];
-// The board's cost totals price issued parts from job cards and parts
-// requests (boardCostTotals); only the owner can skip these.
-const NOT_FOR_OWNERS = [
+// What prices issued parts: the board totals spend from the cost ledger
+// instead (ADR-0013), and reads only the budgets of the cost records.
+const NOT_FOR_REDUCED_COSTS = [
   "taskCards",
   "archivedTaskCards",
   "partsRequests",
-  "costs",
 ];
 
 type Role = (typeof ROLES)[number];
@@ -112,20 +111,21 @@ describe("the workspace snapshot at one year of records", () => {
       reads[role].tables.filter((table) => tables.includes(table));
     expect(among("owner", NOT_FOR_REDUCED_VIEWS)).toEqual([]);
     expect(among("board", NOT_FOR_REDUCED_VIEWS)).toEqual([]);
-    expect(among("owner", NOT_FOR_OWNERS)).toEqual([]);
+    expect(among("owner", NOT_FOR_REDUCED_COSTS)).toEqual([]);
+    expect(among("board", NOT_FOR_REDUCED_COSTS)).toEqual([]);
     expect(reads.board.tables).toEqual(
-      expect.arrayContaining(["taskCards", "partsRequests", "costs"]),
+      expect.arrayContaining(["costLedger", "costs"]),
     );
   });
 
   it("reads less for an owner or a board member than for the workspace", () => {
-    // Recorded at this volume: the owner reads about a fifth of the
-    // workspace's bytes; the board about three fifths, most of it the job
-    // cards its cost totals price parts from.
+    // Recorded at this volume: the owner and the board each read about a
+    // seventh of the workspace's bytes; the board's cost totals come from the
+    // cost ledger, not the job cards and requests that price parts.
     expect(reads.owner.bytes * 4).toBeLessThan(reads.admin.bytes);
     expect(reads.owner.documents * 3).toBeLessThan(reads.admin.documents);
-    expect(reads.board.bytes).toBeLessThan(reads.admin.bytes * 0.7);
-    expect(reads.board.documents * 2).toBeLessThan(reads.admin.documents);
+    expect(reads.board.bytes * 4).toBeLessThan(reads.admin.bytes);
+    expect(reads.board.documents * 3).toBeLessThan(reads.admin.documents);
   });
 
   it("looks files up once per aircraft, not once per job card or work order", async () => {

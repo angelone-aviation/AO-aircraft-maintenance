@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins History paging: newest first without duplicates, the
  *   snapshot's program and aircraft scoping, refusals that reveal nothing,
- *   cursors, and the per-request scan budget.
+ *   cursors, and the per-request scan and lookup budgets.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/auditHistory, convex/programContext, src/data/demo,
  *   src/domain/auditHistory.
@@ -388,3 +388,29 @@ it("returns a short page after scanning 4,000 entries, then carries on", async (
   // Inserting 2,100 rows and scanning 4,000 takes seconds in convex-test, past
   // vitest's 5 s default on a busy machine.
 }, 30_000);
+
+// Rows about purchase orders, requests and cost records carry no aircraft:
+// History reads the record each names by its uuid, at most 100 a page.
+it("returns a short page when its rows name more records than it looks up, then carries on", async () => {
+  const { t, ids } = await fixture();
+  const manager = t.withIdentity({ subject: ids.manager });
+  const before = await all(manager);
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 150; i++)
+      await ctx.db.insert("audit", {
+        uuid: crypto.randomUUID(),
+        programUuid: "demo-program",
+        entityUuid: `missing-${i}`,
+        actorId: "actor",
+        action: "po.save",
+        at: 10_000 + i,
+      });
+  });
+  const first = await manager.query(api.auditHistory.page, {
+    programUuid: "demo-program",
+    numItems: 40,
+    cursor: null,
+  });
+  expect(first).toMatchObject({ page: [], isDone: false });
+  expect(await all(manager)).toEqual(before);
+});

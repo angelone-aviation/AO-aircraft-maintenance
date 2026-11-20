@@ -4,9 +4,10 @@
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
- *   ./urgentAlerts, ./memberships, ./validators, ./recordsDate, src/domain
- *   (model, programs, flightSubmission, flightReview, ownerView, boardView,
- *   deferrals, requiredParts, rejection, aircraftStatus).
+ *   ./urgentAlerts, ./memberships, ./validators, ./recordsDate, ./costLedger,
+ *   ./workingSet, src/domain (model, programs, flightSubmission,
+ *   flightReview, ownerView, boardView, costs, deferrals, requiredParts,
+ *   rejection, aircraftStatus).
  */
 import { v } from "convex/values";
 import {
@@ -75,7 +76,15 @@ import {
   ownerPortalAircraft,
   ownerPortalFiles,
 } from "../src/domain/ownerView";
-import { isBoardView } from "../src/domain/boardView";
+import {
+  boardCostPeriods,
+  boardCostTotals,
+  isBoardView,
+} from "../src/domain/boardView";
+import { ledgerTotals } from "../src/domain/costs/ledger";
+import type { Period } from "../src/domain/costs/period";
+import { ledgerRowsOf } from "./costLedger";
+import { budgetAndSettingsDocs } from "./workingSet";
 import { latestCopy } from "./backups";
 import { earliestLocalDate } from "../src/domain/aircraftStatus";
 import {
@@ -116,10 +125,11 @@ export const snapshot = query({
     const state = await context(ctx, identity.user);
     if (!isOwnerView(state) && !isBoardView(state))
       return workspaceSnapshot(ctx, identity, state);
-    const records = await reducedViewRecords(ctx, identity, state);
     // The board's "this year" and "this quarter" turn over at the program's
     // midnight, not the server's UTC one.
-    return addReducedViewExtras(ctx, scopedSnapshot(records, recordsDate()));
+    const today = recordsDate();
+    const records = await reducedViewRecords(ctx, identity, state, today);
+    return addReducedViewExtras(ctx, scopedSnapshot(records, today));
   },
 });
 
@@ -375,13 +385,13 @@ async function workspaceSnapshot(
 
 // What the owner and board whitelists are built from. They show aircraft
 // status only (no flights, change log, plans, templates, purchasing, files or
-// other people), so none of that is read. The board's cost totals still need
-// the job cards and parts requests that price issued parts
-// (boardCostTotals).
+// other people), so none of that is read. The board's cost totals come from
+// the cost ledger and the budgets.
 async function reducedViewRecords(
   ctx: QueryCtx,
   { user, session }: Identity,
   state: ProgramState,
+  today: string,
 ): Promise<Snapshot> {
   const program = activeProgram(state);
   const aircraft = state.aircraft;
@@ -397,8 +407,8 @@ async function reducedViewRecords(
       await airworthinessDocs(ctx, aircraft),
     ),
     workOrders: decode("workOrders", await workOrderDocs(ctx, aircraft)),
-    ...(isBoardView(state)
-      ? await boardCostRecords(ctx, program, aircraft)
+    ...(isBoardView(state) && program
+      ? await boardCosts(ctx, state, program, today)
       : {}),
     inspections: await inspectionDocs(ctx, aircraft, management),
     management: decode("management", management),
@@ -406,22 +416,33 @@ async function reducedViewRecords(
   };
 }
 
-async function boardCostRecords(
+// Each aircraft's spend this quarter and year, summed from its cost ledger
+// rows of the year (one range per aircraft, ADR-0013), against the budgets:
+// the board reads no job card, parts request or work-order cost record.
+async function boardCosts(
   ctx: QueryCtx,
-  program: string | undefined,
-  aircraft: Aircraft[],
-) {
+  state: ProgramState,
+  program: string,
+  today: string,
+): Promise<Pick<Snapshot, "costs" | "boardCosts">> {
+  const { wholeYear } = boardCostPeriods(today);
+  const rows = new Map(
+    await Promise.all(
+      state.aircraft.map(
+        async (a) =>
+          [
+            a.uuid,
+            await ledgerRowsOf(ctx, program, a.uuid, wholeYear),
+          ] as const,
+      ),
+    ),
+  );
+  const costs = decode("costs", await budgetAndSettingsDocs(ctx, program));
+  const spend = (aircraftUuid: string, period: Period) =>
+    ledgerTotals(rows.get(aircraftUuid) ?? [], period).totalCents;
   return {
-    taskCards: decode("taskCards", await taskCardDocs(ctx, aircraft)),
-    archivedTaskCards: decode(
-      "archivedTaskCards",
-      await archivedTaskCardDocs(ctx, aircraft),
-    ),
-    partsRequests: decode(
-      "partsRequests",
-      await partsRequestDocs(ctx, program),
-    ),
-    costs: decode("costs", await costDocs(ctx, program)),
+    costs,
+    boardCosts: boardCostTotals({ ...state, costs }, today, spend),
   };
 }
 

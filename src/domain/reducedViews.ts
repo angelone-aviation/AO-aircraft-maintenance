@@ -14,7 +14,7 @@
 import { localDate, type Snapshot } from "./model";
 import { isOwnerView, ownerPortalAircraft, ownerSnapshot } from "./ownerView";
 import {
-  boardCostTotals,
+  boardCostRows,
   boardSnapshot,
   boardViewAircraft,
   isBoardView,
@@ -68,7 +68,7 @@ function ownerBoardSnapshot(s: Snapshot, today: string): Snapshot {
     ],
     management: [...(owner.management ?? []), ...(board.management ?? [])],
     workOrders: [...(owner.workOrders ?? []), ...(board.workOrders ?? [])],
-    boardCosts: boardCostTotals({ ...s, aircraft: reached }, today),
+    boardCosts: boardCostRows({ ...s, aircraft: reached }, today),
     offsiteBackupAt: board.offsiteBackupAt,
   };
 }

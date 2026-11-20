@@ -44,6 +44,7 @@ import {
   type Aircraft,
   type AuditEntry,
   type Inspection,
+  type NumberedRecord,
   type Snapshot,
 } from "./model";
 import { componentTotals, type Component } from "./components";
@@ -331,6 +332,15 @@ export const isOpenWorkOrder = (w: WorkOrder) =>
 export const workOrderNumberKey = (number: string) => number.toLowerCase();
 
 /**
+ * What a blank work order number's first free number starts with: `WO-`,
+ * the year of `today`, then a dash; digits follow.
+ *
+ * @param today - The local date, as YYYY-MM-DD.
+ */
+export const workOrderNumberPrefix = (today: string) =>
+  `WO-${today.slice(0, 4)}-`;
+
+/**
  * The work orders an item can be added to.
  *
  * @param s - The snapshot.
@@ -588,7 +598,10 @@ export function componentReading(
  * @param raw - The command.
  * @param now - The clock for timestamps and today's date.
  * @param options - `deferTemplateCopies` leaves copying job card templates
- *   for the order's items to the caller.
+ *   for the order's items to the caller. `numbers` are the Flight Program's
+ *   work order numbers a save's numbering compares, in place of the
+ *   snapshot's orders: at least every number equal to the command's or the
+ *   order's own, and every one starting {@link workOrderNumberPrefix}.
  * @returns The saved order, its version advanced.
  * @throws {Rejection} A refused command, such as "This work order is
  *   closed."; a StaleRecordRejection for a stale order or component version;
@@ -599,7 +612,10 @@ export function saveWorkOrder(
   s: Snapshot,
   raw: WorkOrderCommand,
   now = Date.now(),
-  options: { deferTemplateCopies?: boolean } = {},
+  options: {
+    deferTemplateCopies?: boolean;
+    numbers?: readonly NumberedRecord[];
+  } = {},
 ): WorkOrder {
   const command = workOrderCommandSchema.parse(raw);
   const existing = s.workOrders?.find((w) => w.uuid === command.uuid);
@@ -611,7 +627,7 @@ export function saveWorkOrder(
   if (existing && !isOpenWorkOrder(existing))
     throw new Rejection("This work order is closed.");
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
-  const draft = draftOrder(s, command, existing, a, now);
+  const draft = draftOrder(s, command, existing, a, now, options.numbers);
   assertComponentWork(s, draft.next, a);
   const saved = finishDraft(s, draft.next, command.version);
   const isolated = structuredClone(s);
@@ -834,9 +850,10 @@ function draftOrder(
   existing: WorkOrder | undefined,
   a: Aircraft,
   now: number,
+  numbers: readonly NumberedRecord[] | undefined,
 ): Draft {
   if (command.action === "save")
-    return draftSavedOrder(s, command, existing, a, now);
+    return draftSavedOrder(s, command, existing, a, now, numbers);
   const order = requireOrder(existing);
   if (command.action === "copyTemplates")
     return { next: { ...order }, removedTasks: [] };
@@ -866,9 +883,15 @@ function draftSavedOrder(
   existing: WorkOrder | undefined,
   a: Aircraft,
   now: number,
+  numbers: readonly NumberedRecord[] | undefined,
 ): Draft {
   assertSaveFields(s, command, existing, now);
-  const number = orderNumber(s, a, command, existing, localDate(now));
+  const number = orderNumber(
+    numbers ?? programOrders(s, a),
+    command,
+    existing,
+    localDate(now),
+  );
   const componentReadings = readHeaderComponents(s, command, existing, a, now);
   const tasks = resolveTasks(s, command, existing);
   const removedTasks =
@@ -938,25 +961,27 @@ function assertClosable(s: Snapshot, command: SaveCommand) {
     );
 }
 
-// Numbers are unique within the Flight Program, ignoring case. A blank one
-// takes the first free WO-<year>-<nnnn> of the year of `today`.
-function orderNumber(
-  s: Snapshot,
-  a: Aircraft,
-  command: SaveCommand,
-  existing: WorkOrder | undefined,
-  today: string,
-): string {
-  const programOrders = (s.workOrders ?? []).filter(
+function programOrders(s: Snapshot, a: Aircraft): WorkOrder[] {
+  return (s.workOrders ?? []).filter(
     (w) =>
       s.aircraft.find((x) => x.uuid === w.aircraftUuid)?.programUuid ===
       a.programUuid,
   );
+}
+
+// Numbers are unique within the Flight Program, ignoring case. A blank one
+// takes the first free WO-<year>-<nnnn> of the year of `today`.
+function orderNumber(
+  numbers: readonly NumberedRecord[],
+  command: SaveCommand,
+  existing: WorkOrder | undefined,
+  today: string,
+): string {
   const number =
     command.fields.number ||
     existing?.number ||
-    firstFreeNumber(programOrders, today);
-  const taken = programOrders.some(
+    firstFreeNumber(numbers, today);
+  const taken = numbers.some(
     (w) => w.uuid !== command.uuid && isSameNumber(w.number, number),
   );
   if (taken)
@@ -964,14 +989,14 @@ function orderNumber(
   return number;
 }
 
-function firstFreeNumber(orders: WorkOrder[], today: string) {
-  const year = today.slice(0, 4);
+function firstFreeNumber(numbers: readonly NumberedRecord[], today: string) {
+  const prefix = workOrderNumberPrefix(today);
   let sequence = 1;
   let number: string;
   do {
     const padded = String(sequence++).padStart(ORDER_NUMBER_DIGITS, "0");
-    number = `WO-${year}-${padded}`;
-  } while (orders.some((w) => isSameNumber(w.number, number)));
+    number = prefix + padded;
+  } while (numbers.some((w) => isSameNumber(w.number, number)));
   return number;
 }
 

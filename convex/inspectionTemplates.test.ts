@@ -4,7 +4,8 @@
  *   deletion with cards, evidence and change log, replayed request ids, and
  *   the urgent-alert check after an activation.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/inspectionTemplates, convex/schema, src/domain
+ * Dependencies: convex/inspectionTemplates, convex/schema,
+ *   convex/collections, convex/recordNumbers, src/domain
  *   (inspectionTemplates, deleteInspectionTemplates), tests/fixtures.
  */
 import { convexTest } from "convex-test";
@@ -13,6 +14,9 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { emptyTemplate } from "../src/domain/inspectionTemplates";
+import { encode } from "./collections";
+import { syncRecordNumber } from "./recordNumbers";
+import { expectRecordNumbers } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -169,12 +173,14 @@ it("atomically deletes selected templates, associated cards and stored evidence 
         programUuid: r.programUuid,
         payload: JSON.stringify(r),
       });
-    for (const r of s.taskCards!)
+    for (const r of s.taskCards!) {
       await ctx.db.insert("taskCards", {
         uuid: r.uuid,
         aircraftUuid: r.aircraftUuid,
         payload: JSON.stringify(r),
       });
+      await syncRecordNumber(ctx, "taskCards", encode("taskCards", r));
+    }
     const id = await ctx.db.insert("users", {
       active: true,
       isAdmin: true,
@@ -227,6 +233,7 @@ it("atomically deletes selected templates, associated cards and stored evidence 
   }));
   expect(remaining.templates.map((r) => r.uuid)).toEqual([keep.uuid]);
   expect(remaining.cards.map((r) => r.uuid)).toEqual([job.uuid]);
+  await expectRecordNumbers(t, "taskCards", [task.uuid, job.uuid]);
   expect(remaining.evidence).toEqual([]);
   expect(remaining.blob).toBeNull();
   expect(

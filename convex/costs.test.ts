@@ -5,8 +5,8 @@
  *   holds, and the derived columns a cost save stores.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/costs, convex/workOrders, convex/operations,
- *   src/data/demo, src/domain/costs, tests/fixtures (workOrders,
- *   derivedColumns).
+ *   convex/collections, convex/costLedger, src/data/demo, src/domain (costs, taskCards,
+ *   partsRequests), tests/fixtures (workOrders, derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
@@ -16,7 +16,10 @@ import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
 import { laborCents, parseLaborHours } from "../src/domain/costs";
-import { taskCardDefaults } from "../src/domain/taskCards";
+import { taskCardDefaults, taskCardSchema } from "../src/domain/taskCards";
+import { partsRequestSchema } from "../src/domain/partsRequests";
+import { encode } from "./collections";
+import { storedLedger } from "./costLedger";
 import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -346,6 +349,14 @@ it("keeps cost records with the program that paid when the aircraft moves (AC-10
     );
   expect(technicians("demo-program")).toEqual(["Source mechanic"]);
   expect(technicians("other")).toEqual(["Destination mechanic"]);
+  // The ledger keeps each program's own days (ADR-0013): the source's stay.
+  const ledger = await t.run((ctx) => storedLedger(ctx, order.uuid));
+  expect(
+    ledger.map((r) => [r.programUuid, r.aircraftUuid, r.laborCents]),
+  ).toEqual([
+    ["demo-program", aircraftUuid, 9500],
+    ["other", aircraftUuid, 0],
+  ]);
 });
 it("makes a closed work order's costs read-only", async () => {
   const { tech, admin } = await fixture();
@@ -487,21 +498,19 @@ async function seedIssuedParts(
     inspectionSignoff: null,
     stepSignoffs: {},
   };
-  await ctx.db.insert("archivedTaskCards", {
-    uuid: card.uuid,
-    aircraftUuid,
-    payload: JSON.stringify(card),
-  });
+  await ctx.db.insert(
+    "archivedTaskCards",
+    encode("archivedTaskCards", taskCardSchema.parse(card)),
+  );
   const issued = [
     { kind: "workTask", uuid: "task-1", workOrderUuid: order.uuid },
     { kind: "jobCard", uuid: card.uuid },
   ].map((source, n) => issuedRequest(`request-${n}`, source, `stock-${n}`));
   for (const r of issued)
-    await ctx.db.insert("partsRequests", {
-      uuid: r.uuid,
-      programUuid: "demo-program",
-      payload: JSON.stringify(r),
-    });
+    await ctx.db.insert(
+      "partsRequests",
+      encode("partsRequests", partsRequestSchema.parse(r)),
+    );
 }
 
 // A parts request that issued one unit of `stockUuid`, stored with the

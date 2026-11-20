@@ -280,6 +280,15 @@ export interface AuditEntry {
 }
 
 /**
+ * A record's uuid and number, as a Flight Program's numbering compares them:
+ * the number may be stored in any case.
+ */
+export interface NumberedRecord {
+  uuid: string;
+  number: string;
+}
+
+/**
  * The scoped read model the server sends and the device caches: the active
  * Flight Program's records the user may see. Optional collections are absent
  * where the program or the user's permissions leave them out.

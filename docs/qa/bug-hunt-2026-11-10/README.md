@@ -147,7 +147,7 @@ Each table lists every finding in the area by severity. The full steps, expected
 | PT-5  | Medium   | A parts request could not be re-sourced after its order was cancelled | Fixed `521336e` | NOT REPRODUCED                                                |
 | PT-9  | Medium   | A stock-replenishment parts request can never be completed            | Fixed 2026-11-19 (commit e61bfe5), D18 | REPRODUCED (expected: open decision)                          |
 | PT-10 | Medium   | The purchase-order PDF replaced characters outside Latin-1            | Fixed `97c3d49` | NOT REPRODUCED                                                |
-| PT-12 | Medium   | Editing a stock item's unit cost re-prices past issues                | Decided 2026-11-20 (D13): keep the issued price in the work order's administrator-only cost record; fix to follow | REPRODUCED (expected: open decision)                          |
+| PT-12 | Medium   | Editing a stock item's unit cost re-prices past issues                | Fixed 2026-11-20 (commit 7f5bdf3), D13: the issued price is kept in the work order's administrator-only cost record | REPRODUCED (expected: its issue has no recorded price, as before D13; see note) |
 | PT-6  | Low      | A receipt can be dated years before its order existed                 | Fixed 2026-11-19 (commit b01803d), D19 | REPRODUCED (expected: open decision)                          |
 | PT-7  | Low      | Board view and Costs put issued parts in different periods            | Fixed `1a9afe8` | NOT REPRODUCED, adjusted copy expecting both screens to agree |
 | PT-8  | Low      | "Create PO for parts" counted expired and reserved stock              | Fixed `1c3d54a` | NOT REPRODUCED                                                |
@@ -418,7 +418,7 @@ Aaron is reviewing these. Each one has a plain question, the options and a recom
 | D10 | How soon should a missed backup be reported?                                                   | OP-5                                                               | Make the backup heartbeat a required go-live item                 |
 | D11 | Should the server refuse a duplicate inspection from setup?                                    | NA-11                                                              | Yes, for setup saves only                                         |
 | D12 | How should aircraft documents be capped and rate-limited?                                      | NA-7, SE-5                                                         | Separate caps for photos and Form 337 copies                      |
-| D13 | Should a stock price edit re-price parts already issued?                                       | PT-12                                                              | No; store the price on each issue                                 |
+| D13 | Should a stock price edit re-price parts already issued?                                       | PT-12                                                              | No; store the price on each issue. Fixed 2026-11-20 (commit 7f5bdf3): on the work order's cost record |
 | D14 | Should cost records stay with the program that paid on a transfer?                             | AC-10                                                              | Yes                                                               |
 | D15 | Which compliance fields should owners see on their own aircraft?                               | AC-5, AC-11                                                        | Named fields only, without internal user ids                      |
 | D16 | Is "records package for mechanics" a convenience or a confidentiality rule?                    | NA-19                                                              | A convenience rule                                                |
@@ -519,8 +519,9 @@ A script prints `REPRODUCED: …` and exits with code 1 while the bug exists. It
 
 Some scripts still report `REPRODUCED` or stop with an error on the fixed code, on purpose:
 
-- **Open decisions:** the repros for FL-1, FL-5, MX-3, NA-7, NA-11, NA-15, OP-5, PT-6, PT-9, PT-12, SE-3, SE-12, SE-13, the program-alerts half of SE-8 and the AC-10 case stay red until Aaron decides.
+- **Open decisions:** the repros for FL-1, FL-5, MX-3, NA-7, NA-11, NA-15, OP-5, PT-6, PT-9, SE-3, SE-12, SE-13, the program-alerts half of SE-8 and the AC-10 case stay red until Aaron decides.
 - **Not done:** UI-12.
+- **PT-12:** it builds its issue without a recorded price, like one saved before D13, which keeps the stock item's current cost by decision. `src/domain/issuedPartCosts.test.ts` and `convex/issuedPartCosts.test.ts` pin the fix for new issues.
 - **AC-8 and NB-11:** they expect a program administrator to count refused sign-ins, which was left to system administrators.
 - **SE-2 and NB-6:** they end sessions on the server only, a path that never knows the device.
 - **SE-10:** it runs the two program checks directly, never the system check that saving a date schedules.

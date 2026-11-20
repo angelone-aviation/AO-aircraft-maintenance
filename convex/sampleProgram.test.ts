@@ -14,6 +14,7 @@ import { decode, type PayloadCollection } from "./collections";
 import type { Id } from "./_generated/dataModel";
 import {
   expectDerivedColumns,
+  expectRecordNumbers,
   type DerivedTable,
 } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
@@ -189,6 +190,12 @@ it("stores the derived columns on every record it seeds that has them (ADR-0013)
       table,
       rows.map((r) => r.uuid),
     );
+    if (table === "workOrders" || table === "taskCards")
+      await expectRecordNumbers(
+        t,
+        table,
+        rows.map((r) => r.uuid),
+      );
   }
 });
 

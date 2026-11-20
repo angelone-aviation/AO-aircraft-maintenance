@@ -52,138 +52,155 @@
  },
  "snapshot.board": {
   "1": {
-   "bytes": 4655438,
-   "documents": 3046,
-   "indexRanges": 52
+   "bytes": 1086592,
+   "documents": 1784,
+   "indexRanges": 47
   },
   "2": {
-   "bytes": 8389874,
-   "documents": 4630,
-   "indexRanges": 52
+   "bytes": 1230004,
+   "documents": 2036,
+   "indexRanges": 47
   },
   "3": {
-   "bytes": 12124310,
-   "documents": 6214,
-   "indexRanges": 52
+   "bytes": 1373416,
+   "documents": 2288,
+   "indexRanges": 47
   }
  },
  "workOrder.save": {
   "1": {
-   "bytes": 4589250,
-   "documents": 2970,
-   "indexRanges": 46
+   "bytes": 980731,
+   "documents": 1485,
+   "indexRanges": 50
   },
   "2": {
-   "bytes": 8255940,
-   "documents": 4476,
-   "indexRanges": 46
+   "bytes": 980731,
+   "documents": 1485,
+   "indexRanges": 50
   },
   "3": {
-   "bytes": 11922630,
-   "documents": 5982,
-   "indexRanges": 46
+   "bytes": 980731,
+   "documents": 1485,
+   "indexRanges": 50
   }
  },
  "taskCard.save": {
   "1": {
-   "bytes": 4116451,
-   "documents": 2546,
-   "indexRanges": 37
+   "bytes": 787150,
+   "documents": 1239,
+   "indexRanges": 36
   },
   "2": {
-   "bytes": 7504501,
-   "documents": 3872,
-   "indexRanges": 37
+   "bytes": 787150,
+   "documents": 1239,
+   "indexRanges": 36
   },
   "3": {
-   "bytes": 10892551,
-   "documents": 5198,
-   "indexRanges": 37
+   "bytes": 787150,
+   "documents": 1239,
+   "indexRanges": 36
   }
  },
  "taskCard.evidence": {
   "1": {
-   "bytes": 4113972,
-   "documents": 2547,
-   "indexRanges": 38
+   "bytes": 7798,
+   "documents": 16,
+   "indexRanges": 15
   },
   "2": {
-   "bytes": 7502022,
-   "documents": 3873,
-   "indexRanges": 38
+   "bytes": 7798,
+   "documents": 16,
+   "indexRanges": 15
   },
   "3": {
-   "bytes": 10890072,
-   "documents": 5199,
-   "indexRanges": 38
+   "bytes": 7798,
+   "documents": 16,
+   "indexRanges": 15
   }
  },
  "partsRequest.save": {
   "1": {
-   "bytes": 4706928,
-   "documents": 3086,
-   "indexRanges": 45
+   "bytes": 1330908,
+   "documents": 1766,
+   "indexRanges": 36
   },
   "2": {
-   "bytes": 8493658,
-   "documents": 4712,
-   "indexRanges": 45
+   "bytes": 1729588,
+   "documents": 2066,
+   "indexRanges": 36
   },
   "3": {
-   "bytes": 12280388,
-   "documents": 6338,
-   "indexRanges": 45
+   "bytes": 2128268,
+   "documents": 2366,
+   "indexRanges": 36
   }
  },
  "cost.partUnitCost": {
   "1": {
-   "bytes": 1542514,
-   "documents": 1476,
-   "indexRanges": 17
+   "bytes": 767177,
+   "documents": 1079,
+   "indexRanges": 58
   },
   "2": {
-   "bytes": 2414678,
-   "documents": 1908,
-   "indexRanges": 17
+   "bytes": 767177,
+   "documents": 1079,
+   "indexRanges": 58
   },
   "3": {
-   "bytes": 3286842,
-   "documents": 2340,
-   "indexRanges": 17
+   "bytes": 767177,
+   "documents": 1079,
+   "indexRanges": 58
   }
  },
  "purchaseOrder.save": {
   "1": {
-   "bytes": 1198972,
-   "documents": 1592,
-   "indexRanges": 27
+   "bytes": 1133996,
+   "documents": 1520,
+   "indexRanges": 21
   },
   "2": {
-   "bytes": 1663484,
-   "documents": 1964,
-   "indexRanges": 27
+   "bytes": 1532676,
+   "documents": 1820,
+   "indexRanges": 21
   },
   "3": {
-   "bytes": 2127996,
-   "documents": 2336,
-   "indexRanges": 27
+   "bytes": 1931356,
+   "documents": 2120,
+   "indexRanges": 21
   }
  },
  "auditHistory.weeklySummary": {
   "1": {
-   "bytes": 1117073,
-   "documents": 1414,
-   "indexRanges": 29
+   "bytes": 663425,
+   "documents": 1038,
+   "indexRanges": 26
   },
   "2": {
-   "bytes": 1565505,
-   "documents": 1786,
-   "indexRanges": 29
+   "bytes": 663425,
+   "documents": 1038,
+   "indexRanges": 26
   },
   "3": {
-   "bytes": 2013937,
-   "documents": 2158,
-   "indexRanges": 29
+   "bytes": 663425,
+   "documents": 1038,
+   "indexRanges": 26
+  }
+ },
+ "history.costReport": {
+  "1": {
+   "bytes": 18481,
+   "documents": 38,
+   "indexRanges": 27
+  },
+  "2": {
+   "bytes": 18481,
+   "documents": 38,
+   "indexRanges": 27
+  },
+  "3": {
+   "bytes": 18481,
+   "documents": 38,
+   "indexRanges": 27
   }
  }
 }

@@ -27,6 +27,14 @@ import type { WorkOrder } from "./workOrders";
 import { Rejection, StaleRecordRejection } from "./rejection";
 
 const HOUR_SECONDS = 3600;
+
+/**
+ * The refusal of a correction that later component work or movement may
+ * contradict: a person reviews those events instead.
+ */
+export const LATER_WORK_REVIEW =
+  "Manual review required: later component maintenance or movement exists. Review those events before correcting this closeout.";
+
 const totalsSchema = z.object({
   timeSinceNew: z.number(),
   timeSinceOverhaul: z.number().nullable(),
@@ -281,9 +289,7 @@ function assertNoLaterWork(
         w.closeout.componentWork?.some((c) => c.componentUuid === current.uuid),
     )
   )
-    throw new Rejection(
-      "Manual review required: later component maintenance or movement exists. Review those events before correcting this closeout.",
-    );
+    throw new Rejection(LATER_WORK_REVIEW);
 }
 
 // Replays the corrected work on a copy holding the baseline records, then

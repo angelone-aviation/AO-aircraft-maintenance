@@ -1,18 +1,21 @@
 /**
- * Responsibility: The paged history queries: the flights, problem reports and
- *   work orders the workspace's window leaves out, one work order with
- *   everything on it, and one aircraft's flights over a span.
+ * Responsibility: The history queries: the flights, problem reports and work
+ *   orders the workspace's window leaves out, one work order with everything
+ *   on it, one aircraft's flights over a span, and its cost report from the
+ *   cost ledger.
  * Layer: Server. Public Convex queries; the window, order and scoping rules
  *   come from src/domain.
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./collections, ./historyScan, ./userErrors, src/domain (retention,
- *   historyReads, programs, model, workOrders, auditHistory).
+ *   ./collections, ./historyScan, ./costLedger, ./workingSet, ./userErrors,
+ *   src/domain (retention, historyReads, costs, programs, model, workOrders,
+ *   auditHistory).
  *
  * Each query checks the program first (checkContext refuses a stale program,
- * owners and board members), reads only aircraft the caller may read, and
- * returns rows through scopedSnapshot, so redaction matches the workspace
- * (ADR-0013). A page equals historyPage on the caller's scoped snapshot,
- * unless the read budget cuts it short (docs/history-paging.md).
+ * owners and board members) and reads only aircraft the caller may read
+ * (ADR-0013). Records come back through scopedSnapshot, so redaction matches
+ * the workspace, and a page equals historyPage on the caller's scoped
+ * snapshot unless the read budget cuts it short; the cost report is for
+ * program administrators (docs/history-paging.md).
  */
 import { ConvexError, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
@@ -22,6 +25,11 @@ import { member } from "./access";
 import { decode, decodeFlight } from "./collections";
 import { ReadBudget, scanHistory, type ReadAfter } from "./historyScan";
 import { exposeRejections } from "./userErrors";
+import { ledgerRowsOf } from "./costLedger";
+import { budgetAndSettingsDocs, workOrderDocsByUuid } from "./workingSet";
+import { ledgerCostReport } from "../src/domain/costs/ledger";
+import { periodFor, type Period } from "../src/domain/costs/period";
+import type { CostRecord } from "../src/domain/costs/records";
 import {
   compareHistoryPositions,
   emptyHistoryRecords,
@@ -49,7 +57,11 @@ import {
   type FlightRange,
   type WorkOrderHistory,
 } from "../src/domain/historyReads";
-import { activeProgram, scopedSnapshot } from "../src/domain/programs";
+import {
+  activeProgram,
+  programPermission,
+  scopedSnapshot,
+} from "../src/domain/programs";
 import { can, type Member, type Snapshot } from "../src/domain/model";
 import type { WorkOrder } from "../src/domain/workOrders";
 import { HISTORY_NOT_FOUND } from "../src/domain/auditHistory";
@@ -295,6 +307,54 @@ export const flightsInRange = query({
     return exposeRejections(() =>
       flightRange(scopedSnapshot({ ...state, flights, members }), args),
     );
+  },
+});
+
+/**
+ * An aircraft's work-order costs over a period, from the cost ledger: each
+ * work order with costs in it and its labor time and money, the totals, and
+ * the aircraft's budgets for the years the period touches. Parts count at
+ * the prices the records fix (src/domain/costs/ledger.ts); the paying
+ * program's rows only, so an aircraft that moved shows only its own costs.
+ *
+ * @param programUuid - The caller's active Flight Program.
+ * @param aircraftUuid - The aircraft.
+ * @param from - The first date, as an ISO date.
+ * @param to - The last date, inclusive.
+ * @returns As `ledgerCostReport`, with `budgets` by year.
+ * @throws {ConvexError} As `checkContext`, first; "Flight Program
+ *   administrator required."; "History not found." for an aircraft the
+ *   caller cannot read; "Choose a start and end date."; "Choose a start date
+ *   on or before the end date."
+ */
+export const costReport = query({
+  args: {
+    programUuid: v.optional(v.string()),
+    aircraftUuid: v.string(),
+    from: v.string(),
+    to: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const state = await checkContext(ctx, args.programUuid);
+    const program = activeProgram(state);
+    if (!program || !programPermission(state, "admin"))
+      throw new ConvexError("Flight Program administrator required.");
+    if (!readableAircraft(state).has(args.aircraftUuid))
+      throw new ConvexError(HISTORY_NOT_FOUND);
+    const period = exposeRejections(() =>
+      periodFor("custom", args.to, { from: args.from, to: args.to }),
+    );
+    const rows = await ledgerRowsOf(ctx, program, args.aircraftUuid, period);
+    const orders = await workOrderDocsByUuid(
+      ctx,
+      rows.map((r) => r.workOrderUuid),
+      state.aircraft,
+    );
+    const costs = decode("costs", await budgetAndSettingsDocs(ctx, program));
+    return {
+      ...ledgerCostReport(rows, decode("workOrders", orders), period),
+      budgets: budgetsIn(costs, args.aircraftUuid, period),
+    };
   },
 });
 
@@ -664,4 +724,19 @@ function cursorOf<P extends HistoryPosition>(
   request: PageQuery,
 ): string | null {
   return scan.resume ? historyCursor(scan.resume) : request.cursor;
+}
+
+function budgetsIn(costs: CostRecord[], aircraftUuid: string, period: Period) {
+  const first = Number(period.from.slice(0, 4));
+  const last = Number(period.to.slice(0, 4));
+  return costs
+    .flatMap((r) =>
+      r.kind === "budget" &&
+      r.aircraftUuid === aircraftUuid &&
+      r.year >= first &&
+      r.year <= last
+        ? [{ year: r.year, amountCents: r.amountCents }]
+        : [],
+    )
+    .sort((x, y) => x.year - y.year);
 }

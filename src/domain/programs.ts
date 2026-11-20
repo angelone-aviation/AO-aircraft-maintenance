@@ -461,9 +461,12 @@ function scopeCost(r: CostRecord, scope: CostScope): CostRecord[] {
   if (!ids.has(r.aircraftUuid)) return [];
   if (money) return [r];
   if (r.kind !== "workOrder") return [];
+  // Issue prices are stock costs (decision D13): left out, not emptied, so
+  // records saved before them reach these readers unchanged.
+  const { issuedParts: _prices, ...hoursOnly } = r;
   return [
     {
-      ...r,
+      ...hoursOnly,
       labor: r.labor.map(({ rateCents: _rate, ...e }) => e),
       other: [],
       partUnitCosts: [],

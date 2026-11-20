@@ -6,8 +6,8 @@
  *   no React.
  * Dependencies: zod; ./model, ./programs, ./addresses, ./aircraftSpruce,
  *   ./currencyCode, ./adOwnership, ./adCompliance, ./shelfLife, ./changeLog,
- *   ./rejection; types from ./purchaseOrders, ./management, ./components,
- *   ./workOrders.
+ *   ./costs/issuePrices, ./rejection; types from ./purchaseOrders,
+ *   ./management, ./components, ./workOrders.
  */
 import { adAircraftUuid } from "./adOwnership";
 import { lastCompliance } from "./adCompliance";
@@ -26,6 +26,7 @@ import {
 import { activeProgram, programPermission, recordProgram } from "./programs";
 import { SERVICEABLE_CONDITIONS, assertNotExpired } from "./shelfLife";
 import { auditEntry, type AuditChange } from "./changeLog";
+import { recordIssuedPart } from "./costs/issuePrices";
 import { Rejection } from "./rejection";
 import type { PurchaseOrder } from "./purchaseOrders";
 import type { Stock } from "./management";
@@ -449,11 +450,13 @@ export function auditStockChange(
  *   as {@link resolveRequestSource} and `assertNotExpired`.
  * @throws {z.ZodError} For an invalid command or result.
  *
- * Side effects: on success, replaces `original`'s partsRequests, management
- * and audit, adding a `partsRequest.<kind>` entry and any `stock.*` entries.
- * When the result is an active recurring list, saved or replayed, the open
- * work orders on its aircraft also gain what its lists owe them
- * ({@link generateRecurringRequests}), dated `now`.
+ * Side effects: on success, replaces `original`'s partsRequests, management,
+ * costs and audit, adding a `partsRequest.<kind>` entry and any `stock.*`
+ * entries. An issue also records its stock unit cost on the cost record of
+ * each work order that counts it ({@link recordIssuedPart}), with a
+ * `cost.part.issue` entry. When the result is an active recurring list, saved
+ * or replayed, the open work orders on its aircraft also gain what its lists
+ * owe them ({@link generateRecurringRequests}), dated `now`.
  */
 export function applyRequestCommand(
   original: Snapshot,
@@ -1077,14 +1080,16 @@ function releaseStock(
   if (c.date && !isLocalToday(c.date, now))
     throw new Rejection("The issue date must be today.");
   stock.quantity -= c.quantity;
-  r.issues.push({
+  const issue = {
     lineUuid: line.uuid,
     stockUuid: stock.uuid,
     quantity: c.quantity,
     at: now,
     actorId: s.user.id,
     ...(c.date ? { date: c.date } : {}),
-  });
+  };
+  r.issues.push(issue);
+  recordIssuedPart(s, r, issue, now);
 }
 
 function stockNote({ kind, quantity }: StockCommand, number: string) {
@@ -1149,6 +1154,7 @@ function finishCommand(
   if (r.recurring && !r.cancelled) serveOpenOrders(s, r, now);
   original.partsRequests = s.partsRequests;
   original.management = s.management;
+  original.costs = s.costs;
   original.audit = s.audit;
   return r;
 }

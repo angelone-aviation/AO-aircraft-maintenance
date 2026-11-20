@@ -28,6 +28,7 @@ import type * as certifications from "../certifications.js";
 import type * as checklists from "../checklists.js";
 import type * as collections from "../collections.js";
 import type * as componentTemplates from "../componentTemplates.js";
+import type * as costLedger from "../costLedger.js";
 import type * as costs from "../costs.js";
 import type * as crons from "../crons.js";
 import type * as defaultGroups from "../defaultGroups.js";
@@ -65,6 +66,7 @@ import type * as purchaseOrders from "../purchaseOrders.js";
 import type * as push from "../push.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as rateLimits from "../rateLimits.js";
+import type * as recordNumbers from "../recordNumbers.js";
 import type * as recordsDate from "../recordsDate.js";
 import type * as recurringParts from "../recurringParts.js";
 import type * as runCommand from "../runCommand.js";
@@ -84,6 +86,7 @@ import type * as validators from "../validators.js";
 import type * as webPushProtocol from "../webPushProtocol.js";
 import type * as workOrderCopies from "../workOrderCopies.js";
 import type * as workOrders from "../workOrders.js";
+import type * as workingSet from "../workingSet.js";
 
 import type {
   ApiFromModules,
@@ -112,6 +115,7 @@ declare const fullApi: ApiFromModules<{
   checklists: typeof checklists;
   collections: typeof collections;
   componentTemplates: typeof componentTemplates;
+  costLedger: typeof costLedger;
   costs: typeof costs;
   crons: typeof crons;
   defaultGroups: typeof defaultGroups;
@@ -149,6 +153,7 @@ declare const fullApi: ApiFromModules<{
   push: typeof push;
   pushSubscriptions: typeof pushSubscriptions;
   rateLimits: typeof rateLimits;
+  recordNumbers: typeof recordNumbers;
   recordsDate: typeof recordsDate;
   recurringParts: typeof recurringParts;
   runCommand: typeof runCommand;
@@ -168,6 +173,7 @@ declare const fullApi: ApiFromModules<{
   webPushProtocol: typeof webPushProtocol;
   workOrderCopies: typeof workOrderCopies;
   workOrders: typeof workOrders;
+  workingSet: typeof workingSet;
 }>;
 
 /**

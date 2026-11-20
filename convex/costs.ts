@@ -4,23 +4,27 @@
  * Layer: Server. Convex mutation over runCommand; the rules live in
  *   src/domain/costs.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   ./programContext, src/domain/costs.
+ *   ./programContext, ./workingSet, ./costLedger, src/domain (costs,
+ *   programs, model).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import {
-  managementDocs,
-  partsRequestDocs,
-  taskCardDocs,
-  archivedTaskCardDocs,
-} from "./programContext";
+import { managementDocs } from "./programContext";
 import {
   runCommand,
-  hydrate,
   plainErrors,
   requestOf,
   writeChanged,
+  type ProgramContext,
 } from "./runCommand";
+import {
+  archivedCardDocs,
+  partsRequestDocsOn,
+  workOrderCardDocs,
+  workOrderCostDocs,
+} from "./workingSet";
+import { activeProgram } from "../src/domain/programs";
+import { syncWorkOrderLedger } from "./costLedger";
 import { decode, encode } from "./collections";
 import type { Snapshot } from "../src/domain/model";
 import {
@@ -30,7 +34,8 @@ import {
 } from "../src/domain/costs";
 
 /**
- * Applies one cost command to the active Flight Program's cost records. An
+ * Applies one cost command to the active Flight Program's cost records, and
+ * brings a work order's cost ledger rows up to date with its record. An
  * unchanged record is neither saved nor audited again, and a replayed request
  * id changes nothing.
  *
@@ -49,16 +54,20 @@ export const execute = mutation({
       parse: () => costCommandSchema.parse(JSON.parse(args.payload)),
       request: (command) => requestOf(command.requestUuid, args.payload),
       load: async ({ ctx, state }, command) => {
-        const { snapshot: s, docs } = await hydrate(ctx, state, ["costs"]);
-        if ("workOrderUuid" in command)
-          await loadWorkOrder(ctx, s, args.programUuid, command);
-        return { s, docs: docs.costs };
+        const order = "workOrderUuid" in command ? command : undefined;
+        const docs = await costDocsOf(ctx, state, order?.workOrderUuid);
+        const s: Snapshot = { ...state, costs: decode("costs", docs) };
+        if (order) await loadWorkOrder(ctx, s, args.programUuid, order);
+        return { s, docs };
       },
       apply: ({ s }, command) => applyCostCommand(s, command),
       // Explicit domain validation messages are safe, actionable feedback.
       expose: plainErrors,
-      persist: ({ ctx }, { docs }, next) =>
-        writeChanged(ctx, "costs", docs, [next]),
+      persist: async ({ ctx }, { docs }, next) => {
+        await writeChanged(ctx, "costs", docs, [next]);
+        if (next.kind === "workOrder")
+          await syncWorkOrderLedger(ctx, next.workOrderUuid);
+      },
       audit: (log, { s, docs }, next) => {
         const prior = docs.find((d) => d.uuid === next.uuid);
         if (prior?.payload !== encode("costs", next).payload)
@@ -68,8 +77,20 @@ export const execute = mutation({
     }),
 });
 
+// The program's budgets and labor rate, and a work order's cost records: all
+// a cost command reads of them (ADR-0013).
+function costDocsOf(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  workOrderUuid: string | undefined,
+) {
+  const program = activeProgram(state);
+  return program ? workOrderCostDocs(ctx, program, [workOrderUuid ?? ""]) : [];
+}
+
 // The domain refuses an order whose aircraft is outside this program. A
-// part's unit cost also reads the parts issued to the order and its job cards.
+// part's unit cost also reads the parts issued to the order: the requests
+// raised on it or on its job cards, archived ones included.
 async function loadWorkOrder(
   ctx: MutationCtx,
   s: Snapshot,
@@ -84,13 +105,16 @@ async function loadWorkOrder(
   if (command.action !== "part.unitCost" || !order) return;
   const aircraft = [{ uuid: order.aircraftUuid }];
   s.management = decode("management", await managementDocs(ctx, program));
+  const cards = await workOrderCardDocs(ctx, [order.uuid], aircraft);
+  const archived = await archivedCardDocs(ctx, [order.uuid], aircraft);
+  s.taskCards = decode("taskCards", cards);
+  s.archivedTaskCards = decode("archivedTaskCards", archived);
+  const raisedOn = {
+    workOrderUuids: [order.uuid],
+    sourceUuids: [...cards, ...archived].map((c) => c.uuid),
+  };
   s.partsRequests = decode(
     "partsRequests",
-    await partsRequestDocs(ctx, program),
-  );
-  s.taskCards = decode("taskCards", await taskCardDocs(ctx, aircraft));
-  s.archivedTaskCards = decode(
-    "archivedTaskCards",
-    await archivedTaskCardDocs(ctx, aircraft),
+    program ? await partsRequestDocsOn(ctx, program, raisedOn) : [],
   );
 }

@@ -4,8 +4,8 @@
  * Layer: Server. Mutation helper inside the work-order transactions; the
  *   caller writes the change-log entries it returns.
  * Dependencies: src/domain/partsRequests (the rule and what it needs loaded),
- *   convex/collections (codec), convex/programContext (loaders),
- *   src/domain types.
+ *   convex/collections (codec), convex/programContext and convex/workingSet
+ *   (loaders), src/domain types.
  */
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -16,7 +16,8 @@ import {
   recurringPartsNeeds,
 } from "../src/domain/partsRequests";
 import type { ManagedRecord } from "../src/domain/management";
-import { airworthinessDocs, partsRequestDocs } from "./programContext";
+import { airworthinessDocs } from "./programContext";
+import { highestRequestDocs, partsRequestDocsOn } from "./workingSet";
 import { decode, encode } from "./collections";
 
 type Needs = ReturnType<typeof recurringPartsNeeds>;
@@ -24,7 +25,9 @@ type Needs = ReturnType<typeof recurringPartsNeeds>;
 /**
  * Inserts a parts request for each open task of a work order that an active
  * recurring list on its aircraft covers and has not served yet. It reads only
- * the program's requests, plus the sources of the tasks still owed one.
+ * the requests raised on the order or on its items' records (the lists among
+ * them), the program's highest-numbered request, and the sources of the tasks
+ * still owed one.
  *
  * @param ctx - Mutation context; inserts into partsRequests.
  * @param state - The caller's program context.
@@ -43,7 +46,7 @@ export async function prepareRecurringParts(
   if (!program) return [];
   const requests = decode(
     "partsRequests",
-    await partsRequestDocs(ctx, program),
+    await recurringRequestDocs(ctx, program, order),
   );
   const needs = recurringPartsNeeds(order, requests);
   if (!owesAny(needs)) return [];
@@ -56,6 +59,24 @@ export async function prepareRecurringParts(
   for (const r of generateRecurringRequests(s, order))
     await ctx.db.insert("partsRequests", encode("partsRequests", r));
   return s.audit;
+}
+
+// The requests raised on the order or on its items' records, the lists among
+// them, and the highest-numbered one an occurrence's number continues from.
+async function recurringRequestDocs(
+  ctx: MutationCtx,
+  program: string,
+  order: WorkOrder,
+) {
+  const docs = await partsRequestDocsOn(ctx, program, {
+    workOrderUuids: [order.uuid],
+    sourceUuids: order.tasks.map((t) => t.source.uuid),
+  });
+  const highest = await highestRequestDocs(ctx, program);
+  const seen = new Set(docs.map((d) => d._id));
+  return [...docs, ...highest.filter((d) => !seen.has(d._id))].sort(
+    (a, b) => a._creationTime - b._creationTime,
+  );
 }
 
 // A recurring list is saved only for an inspection, component requirement or

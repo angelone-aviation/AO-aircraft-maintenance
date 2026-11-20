@@ -2,12 +2,13 @@
  * Responsibility: Pins parts requests: linked requests, inventory access,
  *   reservations and issues in stock history, what a recurring list owes the
  *   open work orders, request-id replay, a request uuid another Flight
- *   Program holds, and the derived columns request and PO writes store.
+ *   Program holds, the derived columns request and PO writes store, and
+ *   sources read by uuid.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/partsRequests, convex/purchaseOrders,
  *   convex/workOrders, src/data/demo, src/domain (airworthiness,
  *   partsRequests, purchaseOrders, workOrders), tests/fixtures (workOrders,
- *   derivedColumns).
+ *   taskCards, derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -23,6 +24,7 @@ import { poDraftSchema } from "../src/domain/purchaseOrders";
 import { blankAD, blankADTask } from "../src/domain/airworthiness";
 import { newWorkTask } from "../src/domain/workOrders";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
+import { taskCardCommand } from "../tests/fixtures/taskCards";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -651,3 +653,64 @@ function storedRows(t: ReturnType<typeof convexTest>) {
     audit: await ctx.db.query("audit").collect(),
   }));
 }
+
+// A request reads its source by uuid (ADR-0013), not among every work order,
+// job card and problem report of the program.
+it("labels a request from its work-order task, job card or problem report, each read by its uuid", async () => {
+  const { t, user, args } = await recurringListSetup();
+  const aircraftUuid = demoSnapshot().aircraft[0].uuid;
+  const order = workOrderCommand();
+  order.tasks = [
+    newWorkTask({ kind: "manual", uuid: "manual-1" }, "Replace filter"),
+  ];
+  await user.mutation(api.workOrders.save, args(order));
+  const card = taskCardCommand();
+  card.fields = { ...card.fields, workOrderUuid: order.uuid, title: "Oil" };
+  await user.mutation(api.taskCards.save, args(card));
+  await t.run((ctx) =>
+    ctx.db.insert("discrepancies", {
+      uuid: "report-1",
+      aircraftUuid,
+      description: "Landing light flickers",
+      status: "open",
+      authorId: "pilot",
+      createdAt: Date.now(),
+    }),
+  );
+  const labelOf = async (uuid: string, source: object) => {
+    const draft = requestDraftSchema.parse({
+      uuid,
+      version: 0,
+      source,
+      mode: "parts",
+      date: new Date().toISOString().slice(0, 10),
+      engineer: "Tech",
+      priority: "P2 Routine",
+      requiredBy: "",
+      currency: "USD",
+      lines: [{ uuid: "line", partNumber: "F", description: "F", quantity: 1 }],
+    });
+    await user.mutation(
+      api.partsRequests.execute,
+      args({ kind: "save", requestUuid: crypto.randomUUID(), draft }),
+    );
+    const row = (await storedRows(t)).requests.find((r) => r.uuid === uuid);
+    return JSON.parse(row!.payload).sourceLabel;
+  };
+  const number = JSON.parse(
+    (await t.run((ctx) => ctx.db.query("workOrders").first()))!.payload,
+  ).number;
+  expect(
+    await labelOf("on-task", {
+      kind: "workTask",
+      uuid: order.tasks[0].uuid,
+      workOrderUuid: order.uuid,
+    }),
+  ).toBe(`${number}: Replace filter`);
+  expect(await labelOf("on-card", { kind: "jobCard", uuid: card.uuid })).toBe(
+    "Oil",
+  );
+  expect(
+    await labelOf("on-report", { kind: "discrepancy", uuid: "report-1" }),
+  ).toBe("Landing light flickers");
+});

@@ -569,6 +569,20 @@ const CASES: Case[] = [
   callQuery(api.history.flightsInRange, "its own aircraft", () =>
     stampB({ aircraftUuid: B_AIRCRAFT, from: 0, to: Date.now() }),
   ).returns({ flights: [], members: [] }),
+  callQuery(api.history.costReport, "A's aircraft's costs", (a) =>
+    stampB({
+      aircraftUuid: a.row.aircraft.uuid,
+      from: "2026-01-01",
+      to: "2026-12-31",
+    }),
+  ).refuses(HISTORY_NOT_FOUND),
+  callQuery(api.history.costReport, "A's aircraft's costs in program A", (a) =>
+    stampA({
+      aircraftUuid: a.row.aircraft.uuid,
+      from: "2026-01-01",
+      to: "2026-12-31",
+    }),
+  ).refuses(STALE_PROGRAM),
   callQuery(api.alerts.readKeys, "program A", () => IN_A).refuses(
     STALE_PROGRAM,
   ),

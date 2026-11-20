@@ -13,7 +13,13 @@ import { logbookSelectionFields } from "./logbookWording";
 import { recordProgram } from "./programs";
 import { manualReferenceSchema, validateManualReference } from "./manuals";
 import { z } from "zod";
-import { can, latestLocalDate, type Member, type Snapshot } from "./model";
+import {
+  can,
+  latestLocalDate,
+  type Member,
+  type NumberedRecord,
+  type Snapshot,
+} from "./model";
 import {
   certificateOptions,
   filedCertificates,
@@ -399,6 +405,15 @@ export const isTaskClosed = (t: Pick<TaskCard, "status">) =>
 export const cardNumberKey = (cardNumber: string) => cardNumber.toLowerCase();
 
 /**
+ * What a blank card number's first free number starts with: `TC-`, the UTC
+ * year of `now`, then a dash; digits follow.
+ *
+ * @param now - The save time.
+ */
+export const cardNumberPrefix = (now: number) =>
+  `TC-${new Date(now).getUTCFullYear()}-`;
+
+/**
  * Whether the signed-in user may change a card: maintenance access to its
  * aircraft, and the card neither archived, closed, nor on a work order that
  * is no longer open.
@@ -630,6 +645,10 @@ export const copyTemplateSteps = (steps: TaskStep[]): TaskStep[] =>
  * @param s - The snapshot; its job cards are replaced on success and
  *   untouched on a refusal.
  * @param now - The time to record; the clock by default.
+ * @param numbers - The Flight Program's card numbers the numbering
+ *   compares, in place of the snapshot's cards: at least every number equal
+ *   to the command's or the card's own, and every one starting
+ *   {@link cardNumberPrefix}.
  * @returns The card as saved, one version on.
  * @throws {Rejection} Every refusal of the command, checked in a fixed order;
  *   as {@link validateManualReference}.
@@ -641,6 +660,7 @@ export function saveTaskCard(
   s: Snapshot,
   raw: TaskCardCommand,
   now = Date.now(),
+  numbers?: readonly NumberedRecord[],
 ): TaskCard {
   const c = taskCardCommandSchema.parse(raw);
   const prior = admittedPrior(s, c);
@@ -651,7 +671,7 @@ export function saveTaskCard(
       ? signTaskCard(s, c, prior!, now)
       : c.action === "unlink"
         ? unlinkTaskCard(s, c, prior!)
-        : editTaskCard(s, c, prior, aircraftUuid, now);
+        : editTaskCard(s, c, prior, aircraftUuid, now, numbers);
   const next = taskCardSchema.parse({
     ...draft,
     updatedAt: now,
@@ -670,6 +690,7 @@ export function saveTaskCard(
  * Work orders, template activation and CSV imports save cards through
  * saveTaskCard and log for themselves.
  *
+ * @param numbers - As {@link saveTaskCard}.
  * @returns The card as saved.
  * @throws As {@link saveTaskCard}.
  */
@@ -677,9 +698,10 @@ export function applyTaskCardCommand(
   s: Snapshot,
   raw: TaskCardCommand,
   now = Date.now(),
+  numbers?: readonly NumberedRecord[],
 ): TaskCard {
   const before = s.taskCards?.find((t) => t.uuid === raw.uuid);
-  const next = saveTaskCard(s, raw, now);
+  const next = saveTaskCard(s, raw, now, numbers);
   s.audit.unshift(
     auditEntry(
       s,
@@ -795,6 +817,7 @@ function editTaskCard(
   prior: TaskCard | undefined,
   aircraftUuid: string,
   now: number,
+  numbers: readonly NumberedRecord[] | undefined,
 ): TaskCard {
   const fields =
     c.action === "save"
@@ -815,7 +838,13 @@ function editTaskCard(
     validatePartUsed(s, part, prior, owner, now);
   validateContent(s, fields, prior, now);
   validatePrerequisites(s, c.uuid, fields, aircraftUuid);
-  const cardNumber = assignCardNumber(s, c.uuid, fields, prior, now);
+  const cardNumber = assignCardNumber(
+    numbers ?? programCards(s, fields.aircraftUuid),
+    c.uuid,
+    fields,
+    prior,
+    now,
+  );
   const f = { ...fields, cardNumber };
   const next = withSignoffs(s, c, f, prior, now);
   if (f.status === "completed") assertCompletable(f, next, now);
@@ -1065,36 +1094,42 @@ function reaches(
   ).some((p) => reaches(s, p, target, seen));
 }
 
+// The program's cards, as numbers: those on aircraft of the card's program.
+function programCards(s: Snapshot, aircraftUuid: string): NumberedRecord[] {
+  const programUuid = s.aircraft.find(
+    (a) => a.uuid === aircraftUuid,
+  )!.programUuid;
+  return (s.taskCards ?? [])
+    .filter(
+      (t) =>
+        s.aircraft.find((a) => a.uuid === t.aircraftUuid)?.programUuid ===
+        programUuid,
+    )
+    .map((t) => ({ uuid: t.uuid, number: t.cardNumber }));
+}
+
 function assignCardNumber(
-  s: Snapshot,
+  numbers: readonly NumberedRecord[],
   uuid: string,
   f: TaskCardFields,
   prior: TaskCard | undefined,
   now: number,
 ) {
-  const programUuid = s.aircraft.find(
-    (a) => a.uuid === f.aircraftUuid,
-  )!.programUuid;
-  const cards = (s.taskCards ?? []).filter(
-    (t) =>
-      s.aircraft.find((a) => a.uuid === t.aircraftUuid)?.programUuid ===
-      programUuid,
-  );
   const cardNumber =
-    f.cardNumber || prior?.cardNumber || firstFreeNumber(cards, now);
-  if (cards.some((t) => t.uuid !== uuid && sameNumber(t, cardNumber)))
+    f.cardNumber || prior?.cardNumber || firstFreeNumber(numbers, now);
+  if (numbers.some((t) => t.uuid !== uuid && sameNumber(t, cardNumber)))
     throw new Rejection("Card number already exists in this program.");
   return cardNumber;
 }
 
-const sameNumber = (t: TaskCard, cardNumber: string) =>
-  cardNumberKey(t.cardNumber) === cardNumberKey(cardNumber);
+const sameNumber = (t: NumberedRecord, cardNumber: string) =>
+  cardNumberKey(t.number) === cardNumberKey(cardNumber);
 
-function firstFreeNumber(cards: TaskCard[], now: number) {
+function firstFreeNumber(numbers: readonly NumberedRecord[], now: number) {
   const numbered = (n: number) =>
-    `TC-${new Date(now).getUTCFullYear()}-${String(n).padStart(4, "0")}`;
+    cardNumberPrefix(now) + String(n).padStart(4, "0");
   let n = 1;
-  while (cards.some((t) => sameNumber(t, numbered(n)))) n++;
+  while (numbers.some((t) => sameNumber(t, numbered(n)))) n++;
   return numbered(n);
 }
 
