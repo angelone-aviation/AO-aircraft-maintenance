@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the hourly clean-up of stored files nothing refers
- *   to: the age a file must reach, that a file any record refers to is never
- *   deleted, that every storage id in the schema is in the reference list,
+ *   to: its off, report and delete modes, the start day before which it
+ *   touches nothing, the age a file must reach, that a file any record
+ *   refers to is never deleted, that every storage id in the schema is in the reference list,
  *   and the bounded batch that resumes where the last run stopped, a page
  *   edge between files of equal creation time included.
  * Layer: Test. convex-test suite; never shipped in the build.
@@ -31,21 +32,52 @@ const modules = import.meta.glob([
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 
-afterEach(() => vi.useRealTimers());
+// A fixed morning: each test's first sweep runs on this UTC day.
+const FIRST_RUN = Date.UTC(2026, 10, 19, 10);
 
-function setup() {
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+// A deployment with FILE_SWEEP set to `mode`, or unset, on the morning of
+// FIRST_RUN; the sweep has not run yet.
+function setup(mode: string | undefined) {
+  vi.stubEnv("FILE_SWEEP", mode);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(FIRST_RUN);
   const t = convexTest(schema, modules);
   // Runs the sweep as its hourly job does, `ms` later than the last run.
-  const cleanUpAfter = async (ms: number) => {
-    vi.useFakeTimers({ toFake: ["Date"] });
+  const sweepAfter = async (ms: number) => {
     vi.setSystemTime(Date.now() + ms);
     await t.mutation(SWEEP_FILES, {});
   };
-  const exists = (id: Id<"_storage">) =>
-    t.run(async (ctx) => !!(await ctx.db.system.get(id)));
+  const metadata = (id: Id<"_storage">) =>
+    t.run(async (ctx) => await ctx.db.system.get(id));
+  const exists = async (id: Id<"_storage">) => !!(await metadata(id));
   const store = (text: string) =>
     t.run((ctx) => ctx.storage.store(new Blob([text])));
-  return { t, cleanUpAfter, exists, store };
+  return { t, sweepAfter, metadata, exists, store };
+}
+
+// What the sweep logs for a file, as it reads it from storage.
+async function logged(
+  metadata: (id: Id<"_storage">) => Promise<{
+    _id: Id<"_storage">;
+    _creationTime: number;
+    size: number;
+    contentType?: string;
+  } | null>,
+  id: Id<"_storage">,
+) {
+  const file = (await metadata(id))!;
+  return {
+    storageId: file._id,
+    size: file.size,
+    contentType: file.contentType,
+    _creationTime: file._creationTime,
+  };
 }
 
 it("runs as an hourly job of its own, apart from the manual-ticket clean-up", () => {
@@ -57,25 +89,104 @@ it("runs as an hourly job of its own, apart from the manual-ticket clean-up", ()
 });
 
 it("deletes a stored file nothing refers to once it is more than a day old", async () => {
-  const { cleanUpAfter, exists, store } = setup();
+  const { sweepAfter, exists, store } = setup("delete");
   expect(UNREFERENCED_FILE_AGE).toBe(DAY);
+  await sweepAfter(0);
   const older = await store("a link upload whose bytes matched no ticket");
-  await cleanUpAfter(DAY - HOUR);
+  await sweepAfter(DAY - HOUR);
   expect(await exists(older)).toBe(true);
   const younger = await store("an upload an hour from filing");
-  await cleanUpAfter(2 * HOUR);
+  await sweepAfter(2 * HOUR);
   expect(await exists(older)).toBe(false);
   expect(await exists(younger)).toBe(true);
-  await cleanUpAfter(DAY);
+  await sweepAfter(DAY);
   expect(await exists(younger)).toBe(false);
 });
 
+it("only reports what it would delete until FILE_SWEEP is delete", async () => {
+  const { sweepAfter, metadata, exists, store } = setup(undefined);
+  await sweepAfter(0);
+  const orphan = await store("orphan");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  await sweepAfter(2 * DAY);
+  expect(await exists(orphan)).toBe(true);
+  expect(log).toHaveBeenCalledWith(
+    "fileSweep would delete",
+    await logged(metadata, orphan),
+  );
+  expect(log).toHaveBeenCalledWith("fileSweep run", {
+    mode: "report",
+    checked: 1,
+    unreferenced: 1,
+  });
+});
+
+it("logs every file it deletes with FILE_SWEEP=delete", async () => {
+  const { sweepAfter, metadata, exists, store } = setup("delete");
+  await sweepAfter(0);
+  const orphan = await store("orphan");
+  const expected = await logged(metadata, orphan);
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  await sweepAfter(2 * DAY);
+  expect(await exists(orphan)).toBe(false);
+  expect(log).toHaveBeenCalledWith("fileSweep deleted", expected);
+});
+
+it("does nothing at all with FILE_SWEEP=off", async () => {
+  const { t, sweepAfter, exists, store } = setup("off");
+  const orphan = await store("orphan");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  await sweepAfter(30 * DAY);
+  expect(await exists(orphan)).toBe(true);
+  expect(log).not.toHaveBeenCalled();
+  expect(await t.run((ctx) => ctx.db.query("fileSweep").collect())).toEqual([]);
+});
+
+it("reports, and warns, for a FILE_SWEEP value it does not know", async () => {
+  const { sweepAfter, exists, store } = setup("yes");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  await sweepAfter(0);
+  const orphan = await store("orphan");
+  await sweepAfter(2 * DAY);
+  expect(await exists(orphan)).toBe(true);
+  expect(warn).toHaveBeenCalledWith(
+    "fileSweep: FILE_SWEEP is not off, report or delete; reporting only.",
+  );
+});
+
+it("never touches a file created before the day of its first run, however old", async () => {
+  const { sweepAfter, exists, store } = setup("delete");
+  vi.setSystemTime(FIRST_RUN - DAY);
+  const yesterday = await store("in storage before the sweep existed");
+  vi.setSystemTime(FIRST_RUN - 2 * HOUR);
+  const thisMorning = await store("stored earlier on the first day");
+  vi.setSystemTime(FIRST_RUN);
+  await sweepAfter(0);
+  await sweepAfter(30 * DAY);
+  expect(await exists(yesterday)).toBe(true);
+  expect(await exists(thisMorning)).toBe(false);
+});
+
+it("walks again from its start when switched from report to delete, so files it only reported go", async () => {
+  const { sweepAfter, exists, store } = setup("report");
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  await sweepAfter(0);
+  const orphan = await store("orphan");
+  await sweepAfter(2 * DAY);
+  expect(await exists(orphan)).toBe(true);
+  vi.stubEnv("FILE_SWEEP", "delete");
+  await sweepAfter(HOUR);
+  expect(await exists(orphan)).toBe(false);
+});
+
 it("never deletes a file a record, attachment, manual, photo, Form 337 or queued upload refers to, however old", async () => {
-  const { t, cleanUpAfter, exists, store } = setup();
+  const { t, sweepAfter, exists, store } = setup("delete");
+  await sweepAfter(0);
   const sweepAt = Date.now() + 30 * DAY;
   const referenced = await t.run((ctx) => referEveryWay(ctx, sweepAt));
   const orphan = await store("orphan");
-  await cleanUpAfter(30 * DAY);
+  await sweepAfter(30 * DAY);
   expect(Object.keys(referenced).sort()).toEqual(
     STORAGE_REFERENCES.map((r) => r.table).sort(),
   );
@@ -85,7 +196,8 @@ it("never deletes a file a record, attachment, manual, photo, Form 337 or queued
 });
 
 it(`checks at most ${FILES_PER_RUN} files a run and resumes after the last one checked`, async () => {
-  const { t, cleanUpAfter, exists, store } = setup();
+  const { t, sweepAfter, metadata, exists, store } = setup("delete");
+  await sweepAfter(0);
   const filed = await t.run(async (ctx) => {
     const ids: Id<"_storage">[] = [];
     for (let i = 0; i < FILES_PER_RUN; i++) {
@@ -102,18 +214,16 @@ it(`checks at most ${FILES_PER_RUN} files a run and resumes after the last one c
     return ids;
   });
   const orphan = await store("orphan");
-  await cleanUpAfter(2 * DAY);
+  await sweepAfter(2 * DAY);
   expect(await exists(orphan)).toBe(true);
-  const last = await t.run(
-    async (ctx) => (await ctx.db.system.get(filed.at(-1)!))!,
-  );
+  const last = (await metadata(filed.at(-1)!))!;
   expect(
     await t.run(async (ctx) => await ctx.db.query("fileSweep").unique()),
   ).toMatchObject({
     checkedThrough: last._creationTime,
     checkedIds: [last._id],
   });
-  await cleanUpAfter(HOUR);
+  await sweepAfter(HOUR);
   expect(await exists(orphan)).toBe(false);
   for (const id of filed) expect(await exists(id)).toBe(true);
 });

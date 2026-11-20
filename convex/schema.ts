@@ -351,10 +351,14 @@ export default defineSchema({
     count: v.number(),
   }).index("key", ["key"]),
   // The one row of the hourly sweep of unreferenced files
-  // (convex/fileSweep.ts): the creation time of the newest file it checked,
-  // and the files checked at exactly that time. These ids are positions, not
-  // references, so they are not in convex/storageReferences.ts.
+  // (convex/fileSweep.ts): the midnight of its first run, before which it
+  // touches nothing; the mode its walk is in; the creation time of the newest
+  // file it checked, and the files checked at exactly that time. Those ids
+  // are positions, not references, so convex/storageReferences.ts leaves
+  // them out.
   fileSweep: defineTable({
+    notBefore: v.number(),
+    mode: v.union(v.literal("report"), v.literal("delete")),
     checkedThrough: v.number(),
     checkedIds: v.array(v.id("_storage")),
   }),
