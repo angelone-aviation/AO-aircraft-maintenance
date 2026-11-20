@@ -38,6 +38,8 @@ const DATE_LENGTH = 10;
 const EVIDENCE_PDF = "%PDF-1.4\n% size test evidence\n";
 const SNAPSHOT_ROLES = ["admin", "mechanic", "pilotTwo", "owner", "board"];
 const HISTORY_ROLES = ["admin", "mechanic", "pilotTwo"];
+// The Weekly summary's week, a month, and a year, which reaches its cut.
+const SUMMARY_DAYS = [7, 31, 365];
 const CLOSED_STATUSES = new Set(["completed", "cancelled"]);
 
 const step = process.argv[process.argv.indexOf("--step") + 1];
@@ -155,11 +157,12 @@ async function measureSaves(targets) {
   if (card) await issueAndPrice(targets, card);
   await savePurchaseOrder(targets);
   await saveAd(targets);
-  await call("auditHistory.summary(7d)", "admin", "auditHistory:summary",
-    (c) => c.query(api.auditHistory.summary, {
-      programUuid: PROGRAM, from: dateOf(Date.now() - 7 * DAY_MS),
-      to: dateOf(Date.now()),
-    }));
+  for (const days of SUMMARY_DAYS)
+    await call(`auditHistory.summary(${days}d)`, "admin",
+      "auditHistory:summary", (c) => c.query(api.auditHistory.summary, {
+        programUuid: PROGRAM, from: dateOf(Date.now() - days * DAY_MS),
+        to: dateOf(Date.now()),
+      }));
 }
 
 function command(payload) {
@@ -308,10 +311,14 @@ function saveAd({ ad, order }) {
 // years, by a cursor at that position (the cursor is a sort key and uuid).
 async function measureHistory(role) {
   const half = Date.now() - (years * YEAR_MS) / 2;
+  const byTime = JSON.stringify([Math.round(half), LAST_UUID]);
   const lists = [
-    ["flights", JSON.stringify([Math.round(half), LAST_UUID])],
-    ["discrepancies", JSON.stringify([Math.round(half), LAST_UUID])],
+    ["flights", byTime],
+    ["discrepancies", byTime],
     ["workOrders", JSON.stringify([dateOf(half), LAST_UUID])],
+    ["partsRequests", byTime],
+    ["purchaseOrders", byTime],
+    ["flightPlans", byTime],
   ];
   for (const [list, deep] of lists) {
     await historyPage(list, role, null, "first");
