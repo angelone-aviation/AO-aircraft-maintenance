@@ -86,36 +86,36 @@
  },
  "taskCard.save": {
   "1": {
-   "bytes": 4116791,
-   "documents": 2548,
-   "indexRanges": 50
+   "bytes": 787150,
+   "documents": 1239,
+   "indexRanges": 36
   },
   "2": {
-   "bytes": 7504841,
-   "documents": 3874,
-   "indexRanges": 50
+   "bytes": 787150,
+   "documents": 1239,
+   "indexRanges": 36
   },
   "3": {
-   "bytes": 10892891,
-   "documents": 5200,
-   "indexRanges": 50
+   "bytes": 787150,
+   "documents": 1239,
+   "indexRanges": 36
   }
  },
  "taskCard.evidence": {
   "1": {
-   "bytes": 4113972,
-   "documents": 2547,
-   "indexRanges": 38
+   "bytes": 7798,
+   "documents": 16,
+   "indexRanges": 15
   },
   "2": {
-   "bytes": 7502022,
-   "documents": 3873,
-   "indexRanges": 38
+   "bytes": 7798,
+   "documents": 16,
+   "indexRanges": 15
   },
   "3": {
-   "bytes": 10890072,
-   "documents": 5199,
-   "indexRanges": 38
+   "bytes": 7798,
+   "documents": 16,
+   "indexRanges": 15
   }
  },
  "partsRequest.save": {

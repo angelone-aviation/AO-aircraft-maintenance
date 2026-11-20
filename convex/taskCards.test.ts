@@ -1,12 +1,13 @@
 /**
  * Responsibility: Pins job cards: saving and access, signer identity and
  *   signoff rules, template unlinking, evidence, archived cards, a card uuid
- *   outside the Flight Program, replayed request ids, derived columns and
- *   numbering from the number rows.
+ *   outside the Flight Program, replayed request ids, derived columns,
+ *   numbering from the number rows, and prerequisites read by uuid.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/taskCards, convex/operations, convex/attachments,
- *   convex/collections, convex/recordNumbers, src/data/demo,
- *   src/domain/taskCards, tests/fixtures (taskCards, derivedColumns).
+ *   convex/collections, convex/recordNumbers, convex/workOrders,
+ *   src/data/demo, src/domain/taskCards, tests/fixtures (taskCards,
+ *   workOrders, derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
@@ -15,6 +16,7 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
+import { workOrderCommand } from "../tests/fixtures/workOrders";
 import {
   inspectorCertificatePending,
   taskCardFieldsSchema,
@@ -682,4 +684,47 @@ it("numbers a blank card as the program scan did: the year's first free number, 
     "Card number already exists in this program.",
   );
   await expectRecordNumbers(t, "taskCards", [first, second, gap, next]);
+});
+
+// The save reads a prerequisite by its uuid (ADR-0013), so a card on another
+// work order gets that refusal, not the one for an unknown card.
+it("reads each prerequisite it checks: a card on another work order is refused as one, and a cycle is found", async () => {
+  const { tech } = await fixture();
+  const send = (payload: object) =>
+    tech.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(payload),
+    });
+  const order = async () => {
+    const command = workOrderCommand();
+    await tech.mutation(api.workOrders.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(command),
+    });
+    return command.uuid;
+  };
+  const onOrder = (workOrderUuid: string, prerequisiteUuids: string[] = []) => {
+    const command = taskCardCommand();
+    return {
+      ...command,
+      fields: { ...command.fields, workOrderUuid, prerequisiteUuids },
+    };
+  };
+  const [first, second] = [await order(), await order()];
+  const elsewhere = onOrder(second);
+  await send(elsewhere);
+  await expect(send(onOrder(first, [elsewhere.uuid]))).rejects.toThrow(
+    "Prerequisites must be templates for a template, or job cards on the same work order.",
+  );
+  const before = onOrder(first);
+  await send(before);
+  const after = onOrder(first, [before.uuid]);
+  await send(after);
+  await expect(
+    send({
+      ...before,
+      version: 1,
+      fields: { ...before.fields, prerequisiteUuids: [after.uuid] },
+    }),
+  ).rejects.toThrow("Task prerequisites cannot form a cycle.");
 });

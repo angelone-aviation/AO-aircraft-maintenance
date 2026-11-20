@@ -59,8 +59,6 @@ describe("Characterizes current behaviour: reads grow with each year of history"
     expectGrowth(`snapshot.${role}`),
   );
   it.each([
-    "taskCard.save",
-    "taskCard.evidence",
     "partsRequest.save",
     "cost.partUnitCost",
     "purchaseOrder.save",
@@ -69,7 +67,10 @@ describe("Characterizes current behaviour: reads grow with each year of history"
 });
 
 describe("the bounded saves read the same at three years as at one (S3)", () => {
-  it.each(["workOrder.save"])("%s", (operation) => expectFlat(operation));
+  it.each(["workOrder.save", "taskCard.save", "taskCard.evidence"])(
+    "%s",
+    (operation) => expectFlat(operation),
+  );
 });
 
 // Documents and bytes rise every year. Index ranges do not: each loader
