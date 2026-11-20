@@ -20,7 +20,7 @@ export const OFFSITE_STALE_AFTER_MS = 26 * HOUR;
 /** The newest recorded off-site copy, as system administrators see it. */
 export interface OffsiteCopy {
   completedAt: number;
-  /** Size of the encrypted object in R2. */
+  /** Size of the stored object in R2, encrypted or not (ADR-0014). */
   bytes: number;
   objectKey: string;
   /** Set only on the night that copy also made the monthly archive. */
