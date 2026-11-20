@@ -335,7 +335,15 @@ After deploying the version that adds the history window's derived columns (hist
 npx convex run migrations:backfillHistoryColumns
 ```
 
-Until it reaches 0, nothing changes for users: no screen or save reads the columns yet. The window (stage S7) must not be turned on before it does. Details: [history paging](docs/history-paging.md#running-the-backfill).
+Saves read the columns from stage S3, so on a deployment holding rows from before S2, the backfill must reach 0 before S3 serves saves: a bounded save does not see a row without its columns. The window (stage S7) must not be turned on before it does either. Details: [history paging](docs/history-paging.md#running-the-backfill).
+
+After deploying stage S3, and again after restoring any backup, rebuild the work order and job card number rows that numbering reads. It writes no change-log row and changes no record; it answers how many rows it wrote or deleted. Run it until that count is 0:
+
+```bash
+npx convex run migrations:rebuildRecordNumbers
+```
+
+Until it reaches 0, a blank work order or job card number can repeat one an older record holds. Details: [history paging](docs/history-paging.md#rebuilding-the-number-rows).
 
 ## Operations
 

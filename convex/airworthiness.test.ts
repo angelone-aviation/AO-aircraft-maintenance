@@ -1,12 +1,13 @@
 /**
  * Responsibility: Pins AD records: atomic saves, maintenance access, version
  *   checks, compliance and its correction, an AD uuid another Flight Program
- *   holds, the change-log rows an import writes, and that keeping a stale
- *   draft never puts back a due point a later compliance moved.
+ *   holds, the change-log rows an import writes, that keeping a stale draft
+ *   never puts back a due point a later compliance moved, and the work order
+ *   an entry names.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/airworthiness, convex/operations, src/data/demo,
- *   src/domain/airworthiness, src/domain/recordMerge,
- *   src/domain/keepMineRules.
+ * Dependencies: convex/airworthiness, convex/operations, convex/workOrders,
+ *   src/data/demo, src/domain/airworthiness, src/domain/recordMerge,
+ *   src/domain/keepMineRules, tests/fixtures/workOrders.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -22,6 +23,7 @@ import {
 } from "../src/domain/airworthiness";
 import { mergeKeepMine } from "../src/domain/recordMerge";
 import { AD_KEEP_MINE } from "../src/domain/keepMineRules";
+import { workOrderCommand } from "../tests/fixtures/workOrders";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -543,3 +545,33 @@ async function administrator(
     return `${id}|${session}`;
   });
 }
+
+// The save reads the work order an entry names by its uuid (ADR-0013).
+it("accepts compliance under a work order of the AD's aircraft, and refuses one of another aircraft", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const as = t.withIdentity({ subject: await administrator(t, s) });
+  const send = (to: "workOrders" | "airworthiness", command: object) =>
+    as.mutation(
+      to === "workOrders" ? api.workOrders.save : api.airworthiness.save,
+      { programUuid: "demo-program", payload: JSON.stringify(command) },
+    );
+  const onFirst = workOrderCommand();
+  const onSecond = workOrderCommand();
+  onSecond.fields.aircraftUuid = s.aircraft[1].uuid;
+  await send("workOrders", onFirst);
+  await send("workOrders", onSecond);
+  const ad = trackedAD(s.aircraft[0].uuid);
+  await send("airworthiness", { kind: "save", record: ad });
+  const comply = (workOrderUuid: string, version: number) =>
+    send("airworthiness", {
+      kind: "comply",
+      uuid: ad.uuid,
+      version,
+      entry: { ...complianceAt(ad.tasks[0].uuid, 2300), workOrderUuid },
+    });
+  await expect(comply(onSecond.uuid, 1)).rejects.toThrow(
+    "Select an appropriate work order for this aircraft.",
+  );
+  await comply(onFirst.uuid, 1);
+});
