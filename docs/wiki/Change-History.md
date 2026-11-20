@@ -12,14 +12,15 @@ by appending: the correction and the original both stay here.
 
 1. Open **Change history**. The **Change log** tab is open.
 2. Choose an aircraft, or **All aircraft and program records**.
-3. Open an entry to see the values before and after.
+3. Choose **View recorded values** on an entry to see the values before and
+   after.
 4. Choose **Load older** at the bottom for older entries.
 
 With an aircraft chosen, **Export records package** saves that aircraft's
 complete record ([Records package](Records-Package-and-Exports.md#records-package)).
 
-Most records also have a **Record history** section in their form, listing the
-changes to that one record.
+Aircraft, inspections, components and stock items also have a **Record
+history** section in their form, listing the changes to that one record.
 
 ## Who sees what
 
