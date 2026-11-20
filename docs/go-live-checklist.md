@@ -11,6 +11,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [x] Old production deployment retired (2026-11-03): deleted, with nothing migrated. It held only test data and still ran the auth library with the critical flaw (security review S1). Production starts fresh on the new Convex Pro account. Still to do if not done yet: remove the old site files from A2 Hosting and revoke any API keys only the old deployment used.
 - [ ] Accounts inventory: fill in [`docs/runbooks/accounts.md`](runbooks/accounts.md) after connecting the new Convex account.
 - [ ] Backups: the nightly backup job is built; finish the setup below.
+- [ ] File clean-up: the hourly sweep of stored files no record refers to starts in report-only mode (`FILE_SWEEP` unset) and deletes nothing. Review its first report, then set `FILE_SWEEP=delete` ([file sweep runbook](runbooks/file-sweep.md#review-the-first-pass-then-switch-to-delete)).
 - [x] Release process: CI checks, Cloudflare hosting with security headers, the Deploy workflow (it starts after a green CI push to `main`, or by hand), rollback steps and Dependabot updates are in the repository and in use ([release runbook](runbooks/release.md)).
   - [x] Cloudflare, the Convex deploy key and the GitHub `production` environment are set up, and the first release was made on 2026-11-03.
   - [ ] Preview deployments per change are not built yet ([release runbook](runbooks/release.md#not-set-up-yet)).

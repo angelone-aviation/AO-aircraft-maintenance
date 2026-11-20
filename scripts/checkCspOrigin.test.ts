@@ -1,8 +1,8 @@
 /**
  * Responsibility: Pins check-csp-origin.mjs's rules: https on its default
  *   port only, the Convex sources on the cloud host and on its .convex.site
- *   host (file links), the Sentry DSN's one, exact and `*.` hosts, and the
- *   refusal messages.
+ *   host (file links), the Sentry DSN's one, exact and `*.` hosts, the
+ *   refusal messages, and a policy read past `#` comments.
  * Layer: Test. Runs a copy of the script beside a temporary public/_headers.
  * Dependencies: vitest, scripts/check-csp-origin.mjs, public/_headers.
  *
@@ -153,6 +153,14 @@ describe("check-csp-origin.mjs", () => {
     expect(run.stderr).toBe("The Convex URL is not a valid URL.\n");
   });
 
+  it("reads the policy from its header line, never from a comment naming it", () => {
+    const headers =
+      "# Content-Security-Policy: default-src 'self'\n" +
+      `/*\n  Content-Security-Policy: ${CONVEX_POLICY}\n`;
+
+    expect(runWith([DEPLOYMENT], headers).status).toBe(0);
+  });
+
   it("passes a Convex cloud deployment against the shipped policy", () => {
     const run = spawnSync(process.execPath, [SCRIPT, DEPLOYMENT], {
       encoding: "utf8",
@@ -229,10 +237,11 @@ function checkDsn(dsn: string, policy: string) {
 }
 
 function run(args: string[], policy: string) {
-  writeFileSync(
-    path.join(dir, "public", "_headers"),
-    `/*\n  Content-Security-Policy: ${policy}\n`,
-  );
+  return runWith(args, `/*\n  Content-Security-Policy: ${policy}\n`);
+}
+
+function runWith(args: string[], headers: string) {
+  writeFileSync(path.join(dir, "public", "_headers"), headers);
   const script = path.join(dir, "scripts", "check-csp-origin.mjs");
   return spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
 }

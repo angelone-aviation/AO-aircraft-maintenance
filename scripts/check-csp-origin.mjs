@@ -29,6 +29,9 @@ const SITE_SOURCES = [
 // The SDK only posts events to the DSN's host.
 const SENTRY_SOURCES = [["connect-src", "https"]];
 const HOST_SOURCE = /^([a-z]+):\/\/(\*\.)?([^/:]+)$/;
+// A header line, never a "#" comment that names the header, as
+// pin-csp-origin.mjs reads it.
+const POLICY_LINE = /^\s*Content-Security-Policy:\s*(.+)$/m;
 const CLOUD_SUFFIX = ".convex.cloud";
 const SITE_SUFFIX = ".convex.site";
 
@@ -100,7 +103,7 @@ function readPolicy() {
     new URL("../public/_headers", import.meta.url),
     "utf8",
   );
-  return headers.match(/Content-Security-Policy:\s*(.+)/)?.[1] ?? "";
+  return headers.match(POLICY_LINE)?.[1] ?? "";
 }
 
 function parseUrl(text, name) {

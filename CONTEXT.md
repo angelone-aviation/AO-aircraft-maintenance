@@ -4,7 +4,7 @@ Read this first. It maps the system, names the layers and the rules between them
 
 ## 1. What the system is
 
-Angel One is a progressive web app that keeps the maintenance and status records a mission flight program must hold for its aircraft under 14 CFR Part 91, and runs the daily work that produces them: flight logging, discrepancies and deferrals, the dispatch gate, inspections, component life, airworthiness directives, work orders and task cards, inventory and purchasing. The browser app (React 19, Vite, TanStack Router, Zustand) is served as static files from Cloudflare and talks over a WebSocket to Convex, which holds authentication, all server functions, the database, file storage and scheduled jobs. Data is partitioned by **Flight Program** and filtered by permission group on the server. Pilots can log flights and problem reports offline; everything else needs a connection. The app is the system of record for the six 14 CFR 91.417(a)(2) status records, but it is not the signed maintenance record: it generates unsigned logbook entries for signature ([ADR-0004](docs/adr/0004-logbook-generator-and-status-record-system.md)). A labelled demo mode runs the same app against fictional data in the browser. Status: pre-launch ([go-live checklist](docs/go-live-checklist.md)).
+Angel One is a progressive web app that keeps the maintenance and status records a mission flight program must hold for its aircraft under 14 CFR Part 91, and runs the daily work that produces them: flight logging, discrepancies and deferrals, the dispatch gate, inspections, component life, airworthiness directives, work orders and job cards, inventory and purchasing. The browser app (React 19, Vite, TanStack Router, Zustand) is served as static files from Cloudflare and talks over a WebSocket to Convex, which holds authentication, all server functions, the database, file storage and scheduled jobs. Data is partitioned by **Flight Program** and filtered by permission group on the server. Pilots can log flights and problem reports offline; everything else needs a connection. The app is the system of record for the six 14 CFR 91.417(a)(2) status records, but it is not the signed maintenance record: it generates unsigned logbook entries for signature ([ADR-0004](docs/adr/0004-logbook-generator-and-status-record-system.md)). A labelled demo mode runs the same app against fictional data in the browser. Status: pre-launch ([go-live checklist](docs/go-live-checklist.md)).
 
 ## 2. System map
 
@@ -207,8 +207,8 @@ The 34 terms you meet first. Full definitions and words to avoid: [GLOSSARY.md](
 | Airworthiness directive (AD) | FAA-mandated action tracked per aircraft or component, monitored against FAA DRS. |
 | Compliance record | Append-only entry that an AD action was done; corrected only by appending. |
 | Work order | Numbered container (`WO-YYYY-NNNN`) of requested work on one aircraft, finished by close-out. |
-| Task card | Executable card for findings, work, parts, evidence and signoffs (`TC-YYYY-NNNN`). |
-| Job card | A task card copied into, and owned by, one work order. |
+| Job card | Executable card for findings, work, parts, evidence and signoffs (`TC-YYYY-NNNN`); in a work order, the order's own copy of a job card template. Not "task card". |
+| Job card template | A job card kept on an inspection, component requirement or discrepancy as reusable instructions; never worked or signed. Not "task template". |
 | Signoff | A named person's recorded completion of a required step; internal work tracking, not return to service. |
 | Close-out | Completing a work order: applies component movements, freezes readings, produces the summary. |
 | Logbook entry | Generated, unsigned 43.9/43.11 text or PDF for signature in the aircraft logbook. |

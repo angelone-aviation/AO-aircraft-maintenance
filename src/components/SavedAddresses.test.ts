@@ -307,7 +307,7 @@ describe("SavedAddresses", () => {
 
 describe("for a member who is not an administrator (AC-7)", () => {
   // The server refuses their saves ("Flight Program administrator
-  // required."), so neither view offers a new address.
+  // required."), so neither view offers a way to save an address.
   beforeEach(() => {
     const technicians = {
       id: "technicians",
@@ -338,6 +338,29 @@ describe("for a member who is not an administrator (AC-7)", () => {
     expect(await mount(h(SavedAddresses))).toContain(
       "A Flight Program administrator adds them here or from a request or PO.",
     );
+  });
+
+  it("the directory lists the addresses without Edit address", async () => {
+    const html = await mount(h(SavedAddresses));
+    expect(html).toContain("Forwarder");
+    expect(html).toContain("Not confirmed");
+    expect(html).not.toContain("Edit address");
+  });
+
+  it("the picker offers no review of the document's address, and says who confirms it", async () => {
+    const value = address({ addressName: "Dock 4", confirmed: false });
+    const html = await mount(picker({ value }));
+    expect(html).toContain("Dock 4 (saved on this document)");
+    expect(html).not.toContain("Review selected address");
+    expect(html).toContain(
+      "A Flight Program administrator must review and save this address to confirm it before the PO is issued.",
+    );
+  });
+
+  it("the picker offers no inventory location's address, whose contacts they cannot see", async () => {
+    const html = await mount(picker({ inventoryLocationName: "Stores" }));
+    expect(html).toContain("Main hangar — Receiving");
+    expect(html).not.toContain("Use inventory location address?");
   });
 });
 

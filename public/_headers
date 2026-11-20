@@ -1,8 +1,15 @@
-# Response headers for the Cloudflare Workers Static Assets site (wrangler.jsonc).
+# Responsibility: The site's response headers by request path: the security
+#   policy and the other security headers, and how long each file is cached.
+# Layer: Config. Cloudflare Workers Static Assets (wrangler.jsonc) applies it
+#   to the built files; the Worker's own answers get none of it.
+# Dependencies: none.
+#
 # Rules match the request path, so "/*" also covers app routes such as
 # /work-orders that are answered with index.html. Before changing the
 # Content-Security-Policy read docs/runbooks/release.md; `npm run test:e2e`
 # serves the build with these headers and fails on any CSP violation.
+# Comments go on lines of their own starting with "#", the only kind
+# Cloudflare and the release scripts skip.
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.convex.site; font-src 'self'; connect-src 'self' blob: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   Strict-Transport-Security: max-age=63072000; includeSubDomains

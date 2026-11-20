@@ -2,6 +2,8 @@
 
 The second bug hunt found 132 defects and no Critical one. Every one now has an outcome: 111 are fixed and merged on `main`, 19 are open questions that Aaron is reviewing, 1 is not done and 1 was not a bug.
 
+The status columns were updated on 2026-11-20 for the fixes and decisions merged into `release/combined`. The counts, the verification and the "Repro re-run" results are still those of 2026-11-10.
+
 Fourteen of the 132 repeat another finding from a second angle, so there are about 118 distinct defects. UI-13 was found by the interface testing as a repro script only and written up after the fixes. Each table below says "same as" where two ids describe one defect. The stale-screen audit's 59 items and the one bug found in the clean-up round are counted separately.
 
 | Severity  | Found   | Fixed   | Decision | Not a bug | Not done |
@@ -122,7 +124,7 @@ Each table lists every finding in the area by severity. The full steps, expected
 | MX-14 | High     | Set baseline accepted totals below a requirement's last compliance       | Fixed `a48a6e0` | NOT REPRODUCED                       |
 | MX-16 | High     | Total time could be corrected below a recorded AD compliance             | Fixed `a48a6e0` | NOT REPRODUCED                       |
 | MX-2  | Medium   | A reached AD cycles or landings limit read "Counter unavailable"         | Fixed `8542d4e` | NOT REPRODUCED                       |
-| MX-3  | Medium   | An MEL repair interval counts from the deferral day, not the report day  | Decision D4     | REPRODUCED (expected: open decision) |
+| MX-3  | Medium   | An MEL repair interval counts from the deferral day, not the report day  | Fixed 2026-11-19 (commit 8facd81), D4 | REPRODUCED (expected: open decision) |
 | MX-4  | Medium   | Urgent alerts judged calendar limits on the UTC date                     | Fixed `e8977e8` | NOT REPRODUCED                       |
 | MX-5  | Medium   | The Aircraft page crashed when one aircraft had no meter reading         | Fixed `2cbe42e` | NOT REPRODUCED                       |
 | MX-7  | Medium   | The status sheet listed a grounding discrepancy as plain "Open"          | Fixed `fefa47d` | NOT REPRODUCED                       |
@@ -143,10 +145,10 @@ Each table lists every finding in the area by severity. The full steps, expected
 | PT-3  | Medium   | Correcting a stock part number blocked shipping and receiving         | Fixed `92b568e` | NOT REPRODUCED                                                |
 | PT-4  | Medium   | Editing a component on a repair order blocked every order command     | Fixed `92b568e` | NOT REPRODUCED                                                |
 | PT-5  | Medium   | A parts request could not be re-sourced after its order was cancelled | Fixed `521336e` | NOT REPRODUCED                                                |
-| PT-9  | Medium   | A stock-replenishment parts request can never be completed            | Decision D18    | REPRODUCED (expected: open decision)                          |
+| PT-9  | Medium   | A stock-replenishment parts request can never be completed            | Fixed 2026-11-19 (commit e61bfe5), D18 | REPRODUCED (expected: open decision)                          |
 | PT-10 | Medium   | The purchase-order PDF replaced characters outside Latin-1            | Fixed `97c3d49` | NOT REPRODUCED                                                |
-| PT-12 | Medium   | Editing a stock item's unit cost re-prices past issues                | Decision D13    | REPRODUCED (expected: open decision)                          |
-| PT-6  | Low      | A receipt can be dated years before its order existed                 | Decision D19    | REPRODUCED (expected: open decision)                          |
+| PT-12 | Medium   | Editing a stock item's unit cost re-prices past issues                | Decision pending (D13) | REPRODUCED (expected: open decision)                          |
+| PT-6  | Low      | A receipt can be dated years before its order existed                 | Fixed 2026-11-19 (commit b01803d), D19 | REPRODUCED (expected: open decision)                          |
 | PT-7  | Low      | Board view and Costs put issued parts in different periods            | Fixed `1a9afe8` | NOT REPRODUCED, adjusted copy expecting both screens to agree |
 | PT-8  | Low      | "Create PO for parts" counted expired and reserved stock              | Fixed `1c3d54a` | NOT REPRODUCED                                                |
 | PT-11 | Low      | Correcting a stock part number blocked job cards using that lot       | Fixed `92b568e` | NOT REPRODUCED                                                |
@@ -159,14 +161,14 @@ Each table lists every finding in the area by severity. The full steps, expected
 | AC-3  | High     | An owner group plus a board group opened the full workspace             | Fixed `b10cba5`; confirm in D25                  | NOT REPRODUCED                                                                                                    |
 | AC-2  | Medium   | Expiring-date changes missing from paged history and the Weekly summary | Fixed `4ef62cb`                                  | ERROR: its summary total is fixed at 5, and AC-1 now adds 6 rows; the expiring-date save is counted               |
 | AC-4  | Medium   | Owners received every logbook page photo, not only Form 337 copies      | Fixed `f32e11a`                                  | NOT REPRODUCED                                                                                                    |
-| AC-5  | Medium   | The board view passed AD, deferral and compliance free text             | Fixed `5e61c92` for the board; owner half is D15 | NOT REPRODUCED                                                                                                    |
+| AC-5  | Medium   | The board view passed AD, deferral and compliance free text             | Fixed `5e61c92` for the board; owner half fixed 2026-11-19 (commit 87eca56), D15 | NOT REPRODUCED                                                                                                    |
 | AC-6  | Medium   | Saved-address edits recorded no before or after, readable by no one     | Fixed `fccf1a1`                                  | NOT REPRODUCED                                                                                                    |
 | AC-9  | Medium   | A transferred aircraft left its expiring dates in the old program       | Fixed `6b2f77a`                                  | ERROR: the PT-2 gate refuses the transfer; without the sample orders both cases pass                              |
-| AC-10 | Medium   | A transferred aircraft takes the old program's cost records with it     | Decision D14                                     | ERROR: the PT-2 gate refuses the transfer; without the sample orders it still reproduces, as the decision expects |
-| AC-7  | Low      | Saved-addresses page said any member can add an address                 | Fixed `0745bcb`, doc only                        | No repro script; doc only                                                                                         |
+| AC-10 | Medium   | A transferred aircraft takes the old program's cost records with it     | Fixed 2026-11-19 (commit aa87fe7), D14           | ERROR: the PT-2 gate refuses the transfer; without the sample orders it still reproduces, as the decision expects |
+| AC-7  | Low      | Saved-addresses page said any member can add an address                 | Fixed `0745bcb`, doc; the screens offer saving an address to administrators only since 2026-11-19 (commit c701917) and 2026-11-20 (commit 481f95e) | No repro script; doc only                                                                                         |
 | AC-8  | Low      | Refused sign-ins always counted 0 for a program administrator           | Fixed `30486de`; confirm in D25                  | REPRODUCED (by design, see note): refused sign-ins stay with system administrators                                |
 | AC-12 | Low      | Any https address accepted as a push endpoint                           | Fixed `e9453d3`                                  | NOT REPRODUCED, through the SE-1 and NB-5 scripts                                                                 |
-| AC-11 | Info     | Field list of what the board view and owner portal pass                 | Fixed `5e61c92` for the board; owner half is D15 | REPRODUCED (by design, see note): the fixed phrase for a terminating action                                       |
+| AC-11 | Info     | Field list of what the board view and owner portal pass                 | Fixed `5e61c92` for the board; owner half fixed 2026-11-19 (commit 87eca56), D15 | REPRODUCED (by design, see note): the fixed phrase for a terminating action                                       |
 
 ### Setup, records package, paper check and logbook photos
 
@@ -178,10 +180,10 @@ Each table lists every finding in the area by severity. The full steps, expected
 | NA-3  | Medium   | An offline records package did not say its change log was partial      | Fixed `3a19165`                                | NOT REPRODUCED                                                                                  |
 | NA-4  | Medium   | A second queued photo with the same file name replaced the first       | Fixed `982613b`                                | NOT REPRODUCED, adjusted copy with real JPEG bytes                                              |
 | NA-5  | Medium   | An AD number rewritten as a date by Excel was saved silently           | Fixed `53c212b`; confirm in D25                | REPRODUCED (by design, see note): the row now waits for a confirmation the script does not read |
-| NA-7  | Medium   | Logbook photos share the 200-document cap with Form 337 copies         | Decision D12                                   | REPRODUCED (expected: open decision)                                                            |
+| NA-7  | Medium   | Logbook photos share the 200-document cap with Form 337 copies         | Fixed 2026-11-19 (commit 73be318), D12         | REPRODUCED (expected: open decision)                                                            |
 | NA-8  | Medium   | The records package left out logbook page photos                       | Fixed `3105814`                                | NOT REPRODUCED                                                                                  |
 | NA-10 | Medium   | An inspection without a Reference grounded with a blank reason         | Fixed `8c1a6d7`                                | NOT REPRODUCED                                                                                  |
-| NA-11 | Medium   | Two setup runs at once can save every inspection twice                 | Decision D11; mitigated `53c212b`              | REPRODUCED (expected: open decision)                                                            |
+| NA-11 | Medium   | Two setup runs at once can save every inspection twice                 | Fixed 2026-11-19 (commit 01a15d5), D11         | REPRODUCED (expected: open decision)                                                            |
 | NA-12 | Medium   | Due total time was labelled "h Hobbs"                                  | Fixed `2cbe42e`                                | NOT REPRODUCED                                                                                  |
 | NA-13 | Medium   | Template rows without an ID were skipped after an insert               | Fixed `9bfba5f`                                | NOT REPRODUCED                                                                                  |
 | NA-14 | Medium   | Owners received logbook page photos; same as AC-4                      | Fixed `f32e11a`                                | NOT REPRODUCED                                                                                  |
@@ -221,12 +223,12 @@ Each table lists every finding in the area by severity. The full steps, expected
 | ID    | Severity | Finding                                                              | Status                                 | Repro re-run                                                                      |
 | ----- | -------- | -------------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
 | SE-4  | High     | Discrepancy grounding sent no urgent alert; same as NB-13            | Fixed `ff5c564`                        | NOT REPRODUCED                                                                    |
-| SE-13 | High     | 800 long discrepancies lock every member out of a program            | Decision D2                            | REPRODUCED (expected: open decision)                                              |
+| SE-13 | High     | 800 long discrepancies lock every member out of a program            | Fixed 2026-11-19 (commits d418aff, 00df9dc), D2: a per-member limit and an alert at half of it; the retention window is D3 | REPRODUCED (expected: open decision)                                              |
 | SE-1  | Medium   | Server-side request forgery through the push endpoint; same as AC-12 | Fixed `e9453d3`                        | NOT REPRODUCED                                                                    |
 | SE-2  | Medium   | Push subscriptions survived sign-out; same as NB-6                   | Fixed `f742de0`; confirm in D25        | REPRODUCED (by design, see note): ends sessions on the server only                |
-| SE-3  | Medium   | One program can spend the deployment's 60 urgent emails a day        | Decision D9                            | REPRODUCED (expected: open decision)                                              |
-| SE-5  | Medium   | Aircraft document uploads have no rate limit                         | Decision D12                           | ERROR: the fake PDF bytes are now refused by NA-20; the rate limit was not tested |
-| SE-8  | Medium   | A system administrator in no group got no alerts; same as NB-7       | Fixed `a20a1a8`; program alerts are D8 | REPRODUCED (expected: open decision): the program-alerts half                     |
+| SE-3  | Medium   | One program can spend the deployment's 60 urgent emails a day        | Fixed 2026-11-19 (commit fde4c67), D9  | REPRODUCED (expected: open decision)                                              |
+| SE-5  | Medium   | Aircraft document uploads have no rate limit                         | Fixed 2026-11-19 (commit bac2be5), D12 | ERROR: the fake PDF bytes are now refused by NA-20; the rate limit was not tested |
+| SE-8  | Medium   | A system administrator in no group got no alerts; same as NB-7       | Fixed `a20a1a8`; program alerts decided 2026-11-19, D8: through a group only (commit 6e82622) | REPRODUCED (expected: open decision): the program-alerts half                     |
 | SE-9  | Medium   | Server "today" was UTC for urgent alerts; same as MX-4               | Fixed `e8977e8`                        | NOT REPRODUCED                                                                    |
 | SE-10 | Low      | A deployment-wide date was emailed once per program; same as NB-8    | Fixed `a20a1a8`                        | REPRODUCED (by design, see note): skips the system check                          |
 | SE-11 | Low      | A crafted engine-monitor CSV froze the tab                           | Fixed `bebd1a7`                        | NOT REPRODUCED                                                                    |
@@ -252,7 +254,7 @@ Each table lists every finding in the area by severity. The full steps, expected
 | UI-6  | Low      | Sidebar brand link name does not match its visible text                         | Fixed `b0d222a`                                     | NOT REPRODUCED                                                 |
 | UI-7  | Low      | An empty record history showed as a red error                                   | Fixed `78c1a78`                                     | NOT REPRODUCED                                                 |
 | UI-11 | Low      | Fuel and oil fields store whatever the control holds                            | Fixed in part `9b972bb`; fuel and oil limits are D1 | NOT REPRODUCED; the fuel and oil limits are not tested         |
-| UI-12 | Low      | Quantity and cost fields cannot be emptied and turn -5 into 5                   | Not done: purchasing inputs need their own change   | REPRODUCED (expected: not done)                                |
+| UI-12 | Low      | Quantity and cost fields cannot be emptied and turn -5 into 5                   | Fixed 2026-11-19 (commit 1e56398)                   | REPRODUCED (expected: not done)                                |
 
 ### Operations
 
@@ -263,13 +265,13 @@ Each table lists every finding in the area by severity. The full steps, expected
 | OP-2  | Low      | Sample flights had start and end readings swapped                     | Fixed `c1f1748`                       | No repro script; unit test                                |
 | OP-3  | Low      | Re-running setup:auth replaced the production SITE_URL with localhost | Fixed `f91ac40`; confirm in D25       | No repro script; unit tests                               |
 | OP-4  | Low      | .gitignore missed the secret files the backup runbook creates         | Fixed `0df0cfb`                       | No repro script; unit test                                |
-| OP-5  | Low      | The "36-hour" stale-backup warning arrives after about 52 hours       | Fixed: 26-hour limit (D10)            | REPRODUCED (expected: open decision)                      |
+| OP-5  | Low      | The "36-hour" stale-backup warning arrives after about 52 hours       | Fixed 2026-11-19 (commit 1434b27): 26-hour limit, D10 | REPRODUCED (expected: open decision)                      |
 | OP-7  | Low      | A manual Deploy ignored CI                                            | Fixed `283c70c`; confirm in D25       | No repro script; workflow tests                           |
 | OP-8  | Low      | check:standards ignores uncommitted files and some file types         | Decision D23                          | No repro script; open decision                            |
 | OP-9  | Low      | Release runbook and README disagreed on memberships:backfill          | Fixed `283c70c`                       | No repro script; doc only                                 |
 | OP-10 | Info     | The nightly job accepted an export without files or users             | Fixed `b45447c`                       | NOT REPRODUCED                                            |
 | OP-11 | Info     | The recorded backup hash was the plaintext ZIP's                      | Fixed `b45447c`                       | No repro script; backup job test                          |
-| OP-12 | Info     | Deploy resolves wrangler's dependencies outside the lockfile          | Fixed: locked devDependencies (D24)   | No repro script; open decision                            |
+| OP-12 | Info     | Deploy resolves wrangler's dependencies outside the lockfile          | Fixed 2026-11-19 (commit 7a1b577): locked devDependencies, D24 | No repro script; open decision                            |
 
 ### Size
 
@@ -325,9 +327,9 @@ Settings is reorganised into My account, Alerts, This device, Flight Program and
 | B4  | Medium   | The System section is a pile                                                                                | Fixed `281b5d5`                    |
 | B5  | High     | "Download data backup" is not a backup                                                                      | Fixed `c915ccf`                    |
 | B6  | Medium   | The FAA renewal callout on the Overview goes to people who cannot act                                       | Fixed `281b5d5`                    |
-| B7  | Low      | Settings for owners and board members does not exist, and nobody tells them                                 | Decision D20                       |
+| B7  | Low      | Settings for owners and board members does not exist, and nobody tells them                                 | Fixed 2026-11-19 (commit 36d1c16), D20 |
 | B8  | Medium   | "This device" leaves out most of what the device keeps                                                      | Fixed in part `281b5d5`            |
-| B9  | Low      | The theme has no "match this device" option                                                                 | Not done                           |
+| B9  | Low      | The theme has no "match this device" option                                                                 | Fixed 2026-11-19 (commit 224c24f)  |
 | B10 | Low      | "Edit my certifications" is reachable from three places                                                     | Fixed `281b5d5`                    |
 | B11 | Low      | The Flight Program section puts navigation between content                                                  | Fixed `281b5d5`                    |
 | B12 | Low      | A role name that tells a mechanic nothing                                                                   | Fixed in part `b0d222a`            |
@@ -335,11 +337,11 @@ Settings is reorganised into My account, Alerts, This device, Flight Program and
 | C2  | Low      | The same action has three names                                                                             | Fixed `281b5d5` `b0d222a`          |
 | C3  | Low      | The top-bar title falls back to "Overview" on pages it does not know                                        | Fixed `b0d222a`                    |
 | C4  | Low      | The browser tab title never changes                                                                         | Fixed `b0d222a`                    |
-| C5  | Low      | "Job card" in the UI against "Task card / Task template" in the glossary                                    | Decision D21                       |
-| C6  | Low      | "Report a problem" against "Discrepancy"                                                                    | Decision D22                       |
+| C5  | Low      | "Job card" in the UI against "Task card / Task template" in the glossary                                    | Fixed 2026-11-19 (commit 5d340c5), D21; docs 2026-11-20 (commit b0c6465) |
+| C6  | Low      | "Report a problem" against "Discrepancy"                                                                    | Fixed 2026-11-19 (commit 7a674ae), D22 |
 | C7  | Low      | "sign-off" against the glossary's "Signoff"                                                                 | Fixed `b0d222a`                    |
 | C8  | Medium   | Pilots see the raw code "unknown" as the aircraft status in Start flight                                    | Fixed `b0d222a`                    |
-| C9  | Low      | "Weekly summary" offers 30-day and custom periods                                                           | Not done                           |
+| C9  | Low      | "Weekly summary" offers 30-day and custom periods                                                           | Fixed 2026-11-19 (commit 24cbaf4): the tab is "Summary" |
 | C10 | Low      | The demo restriction is worded three ways                                                                   | Fixed `281b5d5`                    |
 | C11 | Low      | "Transfer Flight Program" transfers records, not the program                                                | Fixed `b0d222a`                    |
 | D1  | Low      | Console warnings on every load once the new service worker controls the page                                | Not done                           |

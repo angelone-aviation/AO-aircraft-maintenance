@@ -9,10 +9,6 @@
 # the bucket is a folder, and the age key pair is thrown away afterwards.
 # Run: npm run test:backup.
 
-# Single-quoted jq programs and bash -c snippets are expanded by jq or the inner
-# shell, on purpose.
-# shellcheck disable=SC2016
-
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -282,7 +278,28 @@ decrypts_to() { age -d -i "$tmp/key.txt" "$1" | cmp -s - "$2"; }
 opens_with_new_key() { age -d -i "$tmp/new-key.txt" "$1" 2>/dev/null | cmp -s - "$2"; }
 stored_fingerprint() { tr -d '[:space:]' <"$(bucket_dir)/state/env-fingerprint.txt"; }
 sha_of() { sha256sum "$1" | cut -d ' ' -f 1; }
-jq_true() { jq -e "$@" >/dev/null; }
+fails() { ! "$@"; }
+output_to() { # output_to <file> <command...>: its output and errors in <file>
+  local file=$1
+  shift
+  "$@" >"$file" 2>&1
+}
+all_age_encrypted() { # all_age_encrypted <bucket folder>
+  local f
+  for f in "$1"/daily/*/*/*/*.age "$1"/monthly/*/*.age "$1"/env/*.age; do
+    [[ "$(head -c 21 "$f")" == age-encryption.org/v1 ]] || return 1
+  done
+}
+
+manifest_matches() { # manifest_matches <manifest> <export> <encrypted file> <recorded bytes>
+  jq -e --arg sha "$(sha_of "$2")" --argjson plainBytes "$(wc -c <"$2" | tr -d ' ')" \
+    --arg encSha "$(sha_of "$3")" --argjson bytes "$4" '
+    .plaintext.sha256 == $sha and .plaintext.bytes == $plainBytes
+    and .encrypted.sha256 == $encSha and .encrypted.bytes == $bytes
+    and .gitCommit == "0123456789abcdef0123456789abcdef01234567" and .convexCliVersion == "1.49.0"
+    and .tables == {"_storage": 1, "aircraft": 3, "users": 2}
+    and (.exportStartedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' "$1" >/dev/null
+}
 
 record_matches_contract() { # record_matches_contract <json> <expect monthly: yes|no> <envUploaded>
   local json=$1 monthly=$2 env_flag=$3 now_ms
@@ -325,22 +342,15 @@ check "monthly copy is the same encrypted file" cmp -s "$daily_file" "$(bucket_d
 manifest="${daily_file%.zip.age}.manifest.json"
 check "manifest sits beside the daily object" test -f "$manifest"
 check "manifest sits beside the monthly object" test -f "$(bucket_dir)/${monthly_key%.zip.age}.manifest.json"
-check "manifest records hashes, sizes, commit, CLI version and table counts" jq_true \
-  --arg sha "$(sha_of "$state/last-export.zip")" --argjson bytes "$(jq .bytes <<<"$rec")" \
-  --argjson plainBytes "$(wc -c <"$state/last-export.zip" | tr -d ' ')" --arg encSha "$(sha_of "$daily_file")" '
-    .plaintext.sha256 == $sha and .plaintext.bytes == $plainBytes
-    and .encrypted.sha256 == $encSha and .encrypted.bytes == $bytes
-    and .gitCommit == "0123456789abcdef0123456789abcdef01234567" and .convexCliVersion == "1.49.0"
-    and .tables == {"_storage": 1, "aircraft": 3, "users": 2}
-    and (.exportStartedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' "$manifest"
+check "manifest records hashes, sizes, commit, CLI version and table counts" \
+  manifest_matches "$manifest" "$state/last-export.zip" "$daily_file" "$(jq .bytes <<<"$rec")"
 check "exactly one env/ object, named by the run's time" test "$(object_count '^env/angelone-env-[0-9]{8}T[0-9]{6}Z\.txt\.age$')" = 1
 env_object="$(bucket_dir)/$(objects | grep '^env/')"
 check "env/ object decrypts to the environment variables" decrypts_to "$env_object" "$tmp/env.txt"
 first_fingerprint=$(stored_fingerprint)
 check "fingerprint stored in state/, outside the locked prefixes" \
   grep -qE '^[0-9a-f]{64}$' <<<"$first_fingerprint"
-check "every stored .age object is encrypted" bash -c \
-  'for f in "$1"/daily/*/*/*/*.age "$1"/monthly/*/*.age "$1"/env/*.age; do [[ "$(head -c 21 "$f")" == age-encryption.org/v1 ]] || exit 1; done' _ "$(bucket_dir)"
+check "every stored .age object is encrypted" all_age_encrypted "$(bucket_dir)"
 check "no plaintext left after exit" no_plaintext_left first
 check "no secret in the output, the step summary or any command line" \
   no_secrets_in "$out" "$tmp/summary-first.md" "$state/aws-calls.log" "$state/npx-calls.log"
@@ -352,13 +362,13 @@ mkdir -p "$tmp/restore"
 cp "$daily_file" "$manifest" "$tmp/restore/"
 restore_age="$tmp/restore/${daily_file##*/}"
 check "decrypt.sh decrypts and checks the manifest" \
-  bash -c '"$1" "$2" "$3" >"$4" 2>&1' _ "$here/decrypt.sh" "$tmp/key.txt" "$restore_age" "$tmp/out-decrypt.txt"
+  output_to "$tmp/out-decrypt.txt" "$here/decrypt.sh" "$tmp/key.txt" "$restore_age"
 check "decrypt.sh writes a byte-identical export" cmp -s "${restore_age%.age}" "$state/last-export.zip"
 check "decrypt.sh prints the table counts" grep -qE '^  aircraft +3$' "$tmp/out-decrypt.txt"
 rm -f -- "${restore_age%.age}"
 jq --arg zero "$(printf '0%.0s' {1..64})" '.plaintext.sha256 = $zero' "$manifest" >"$tmp/restore/${manifest##*/}"
 check "decrypt.sh refuses a file that does not match its manifest" \
-  bash -c '! "$1" "$2" "$3" >/dev/null 2>&1' _ "$here/decrypt.sh" "$tmp/key.txt" "$restore_age"
+  fails output_to /dev/null "$here/decrypt.sh" "$tmp/key.txt" "$restore_age"
 
 echo "# second night, same month, same environment"
 run_backup second
@@ -460,7 +470,8 @@ failure_case head-fails "failed head-object check" FAKE_FAIL_HEAD_AFTER_PUT='^da
 failure_case monthly-upload-fails "failed monthly upload" FAKE_FAIL_PUT='^monthly/'
 failure_case env-upload-fails "failed env/ upload" FAKE_FAIL_PUT='^env/'
 failure_case existing-object "daily object already there" FAKE_EXISTS='^daily/.*\.zip\.age$'
-check "daily object already there: never overwritten" bash -c '! grep -q " s3 cp .* s3://angelone-backups/daily/" "$1"' _ "$state/aws-calls.log"
+check "daily object already there: never overwritten" \
+  fails grep -q " s3 cp .* s3://angelone-backups/daily/" "$state/aws-calls.log"
 
 echo "# recording fails after a good backup"
 fresh_bucket record-fails

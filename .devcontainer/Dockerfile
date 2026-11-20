@@ -1,3 +1,7 @@
+# Responsibility: The local development container's image: Node with git and
+#   the system libraries Playwright's Chromium needs, run as the node user.
+# Layer: Config (development only). Neither CI nor production builds it.
+# Dependencies: the node:22-bookworm-slim base image and Debian packages.
 FROM node:22-bookworm-slim
 
 RUN apt-get update \

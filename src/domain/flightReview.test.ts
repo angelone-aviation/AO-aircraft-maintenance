@@ -364,6 +364,23 @@ describe("heldFlightComparison", () => {
     };
     expect(heldFlightComparison(matching, aircraft)).toEqual([]);
   });
+
+  it("shows a start written with an offset, and the latest flight, in UTC", () => {
+    const { s, held } = fixture();
+    const offset = { ...held, startTime: "2026-10-03T21:30:00-05:00" };
+    const aircraft = {
+      ...s.aircraft[0],
+      latestFlightAt: "2026-10-03T20:00:00-05:00",
+    };
+    expect(
+      heldFlightComparison(offset, aircraft).find((d) => d.key === "startTime"),
+    ).toEqual({
+      key: "startTime",
+      label: "Flight time (UTC)",
+      mine: "2026-10-04 02:30",
+      theirs: "2026-10-04 01:00",
+    });
+  });
 });
 
 describe("assertReviewer", () => {
