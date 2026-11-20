@@ -1,6 +1,6 @@
 # File links that expire
 
-Decision of 2026-11-19 on security findings S7 and SE-12 (D17). Status: built for every stored file; two release steps are listed under [What is left](#what-is-left).
+Decision of 2026-11-19 on security findings S7 and SE-12 (D17). Status: built for every stored file; one release step is listed under [What is left](#what-is-left).
 
 ## The problem
 
@@ -30,11 +30,11 @@ browser ──GET <deployment>.convex.site/files/v1/<token>──► HTTP action
 
 ## Content-Security-Policy (`public/_headers`)
 
-| Directive     | Today                                                             | Needed                                                                                                                                                              |
-| ------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `img-src`     | `'self' data: blob: https://*.convex.cloud https://*.convex.site` | `*.convex.site` added for thumbnails and photos shown straight from a link. `*.convex.cloud` is no longer needed by any screen (see [What is left](#what-is-left)). |
-| `connect-src` | already allows `https://*.convex.site`                            | No change: PDF.js, the records package and Keep on this device fetch from it.                                                                                       |
-| `frame-src`   | `'self'`                                                          | No change: no file is framed. PDFs render in PDF.js or open in a new tab, which the app's CSP does not govern.                                                      |
+| Directive     | Today                                      | Needed                                                                                                                                                                                                                                                                      |
+| ------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `img-src`     | `'self' data: blob: https://*.convex.site` | Only the site host, for thumbnails and photos drawn straight from a link; no image loads from storage on `*.convex.cloud`. `scripts/check-csp-origin.mjs` checks the deployment's site host here before a deploy, and `scripts/pin-csp-origin.mjs` pins it to production's. |
+| `connect-src` | already allows `https://*.convex.site`     | No change: PDF.js, the records package and Keep on this device fetch from it.                                                                                                                                                                                               |
+| `frame-src`   | `'self'`                                   | No change: no file is framed. PDFs render in PDF.js or open in a new tab, which the app's CSP does not govern.                                                                                                                                                              |
 
 ## Who may open what
 
@@ -62,7 +62,4 @@ The issuing rule for each kind is the one its listing applies today, so nobody g
 
 Built: the signing key, the token, the HTTP action, `fileLinks.links` for all eight kinds, every screen on links, and no file link in the snapshot or any listing. Server tests issue a link for exactly the files each role's snapshot lists (workspace reader, owner, owner who is also on a board, program and system administrators), refuse board-only members, signed-out callers and a stale program, pin the manual, purchase-order and license-copy rules with their features, and attack every kind from another Flight Program in the tenant-isolation suite.
 
-Left for the release:
-
-1. Regenerate `convex/_generated` against a deployment (`npx convex dev`). Codegen was not run on this branch, so the browser adapter and the tests name `fileLinks:links` with `makeFunctionReference` (`FILE_LINKS` in `src/data/backend.ts` and `tests/fixtures/fileLinks.ts`); afterwards they can use `api.fileLinks.links`.
-2. Remove `https://*.convex.cloud` from `img-src`. `scripts/check-csp-origin.mjs` checks the deployment's `.convex.cloud` host against `img-src` before a deploy, so it must check the `.convex.site` host there instead in the same change. This is left to whoever pins the CSP's Convex hosts (C3), so the two edits land together.
+Left for the release: regenerate `convex/_generated` against a deployment (`npx convex dev`). Codegen was not run on this branch, so the browser adapter and the tests name `fileLinks:links` with `makeFunctionReference` (`FILE_LINKS` in `src/data/backend.ts` and `tests/fixtures/fileLinks.ts`); afterwards they can use `api.fileLinks.links`.

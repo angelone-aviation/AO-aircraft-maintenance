@@ -76,7 +76,11 @@ describe("pin-csp-origin.mjs", () => {
         "https://happy-otter-123.convex.site",
       ]),
     );
+    // Images come only from file links on the site host, never storage.
     expect(sourcesOf(policy, "img-src")).toContain(
+      "https://happy-otter-123.convex.site",
+    );
+    expect(sourcesOf(policy, "img-src")).not.toContain(
       "https://happy-otter-123.convex.cloud",
     );
   });
