@@ -6,7 +6,7 @@
  *   FAA allowance.
  * Dependencies: convex (access, faaSearch, faaCredentials, faaDrs,
  *   programContext, recordsDate, userErrors), src/domain (faa,
- *   faaMonitoringSearch, model, airworthiness, management), zod.
+ *   faaMonitoringSearch, airworthiness, management), zod.
  */
 import {
   monitoringQueries,
@@ -23,8 +23,8 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { ConvexError, v } from "convex/values";
-import { audit } from "./access";
+import { v } from "convex/values";
+import { writeAudit } from "./access";
 import { chargeFaaAllowance } from "./faaSearch";
 import { faaSecret } from "./faaCredentials";
 import { fetchMonitoringCandidates } from "./faaDrs";
@@ -34,28 +34,21 @@ import {
   checkContext,
   managementDocs,
   airworthinessDocs,
+  faaMonitorDocs,
 } from "./programContext";
-import { can } from "../src/domain/model";
 import { adSchema } from "../src/domain/airworthiness";
 import { recordSchema } from "../src/domain/management";
 import {
-  applyFaaCommand,
-  emptyMonitor,
   faaCommandSchema,
   faaMonitorSchema,
   mergeCandidates,
   faaCandidateSchema,
   monitorAttemptedWithin,
+  runFaaCommand,
   startFaaRun,
   type FaaMonitor,
 } from "../src/domain/faa";
 import { z } from "zod";
-
-/**
- * How many aircraft one Flight Program may monitor daily: the daily checks
- * share the program's FAA allowance with interactive searches.
- */
-export const MAX_ENABLED_FAA_MONITORS = 25;
 
 // A monitor attempted within the last hour (a manual check) skips the daily
 // run.
@@ -81,13 +74,15 @@ export const chargeRun = internalMutation({
 
 /**
  * Configures an aircraft's monitor, reviews one of its candidates, or starts a
- * check now; audits "faa.<kind>" with the command.
+ * check now, as runFaaCommand decides; writes its "faa.<kind>" row with the
+ * command.
  *
  * @param payload - JSON, as `faaCommandSchema`.
  * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} As `checkContext`; "Aircraft maintenance permission
- *   required."; the {@link MAX_ENABLED_FAA_MONITORS} cap, when enabling;
- *   "Candidate not found."; "Wait one minute before checking again."
+ * @throws {ConvexError} As `checkContext`; runFaaCommand's refusals:
+ *   "Aircraft maintenance permission required."; the monitor cap, when
+ *   enabling; "Candidate not found."; "Wait one minute before checking
+ *   again."
  * @throws A ZodError for an invalid payload.
  */
 export const command = mutation({
@@ -95,25 +90,24 @@ export const command = mutation({
   handler: async (ctx, args) => {
     const state = await checkContext(ctx, args.programUuid);
     const cmd = faaCommandSchema.parse(JSON.parse(args.payload));
-    if (!can(state, cmd.aircraftUuid, "maintenance"))
-      throw new ConvexError("Aircraft maintenance permission required.");
-    const doc = await findMonitor(ctx, cmd.aircraftUuid);
-    const m = doc ? parseMonitor(doc) : emptyMonitor(cmd.aircraftUuid);
-    if (cmd.kind === "configure" && cmd.enabled && !m.enabled)
-      await assertMonitorCapacity(ctx, cmd.aircraftUuid);
-    const next = exposeRejections(() => applyFaaCommand(m, cmd, Date.now()));
+    const docs = await faaMonitorDocs(ctx, state.aircraft);
+    const { monitor, entry } = exposeRejections(() =>
+      runFaaCommand(
+        { ...state, faaMonitors: docs.map(parseMonitor) },
+        cmd,
+        Date.now(),
+      ),
+    );
     if (cmd.kind === "check")
-      await scheduleRun(ctx, cmd.aircraftUuid, next.runId);
+      await scheduleRun(ctx, cmd.aircraftUuid, monitor.runId);
     const record = {
       aircraftUuid: cmd.aircraftUuid,
-      payload: JSON.stringify(next),
+      payload: JSON.stringify(monitor),
     };
+    const doc = docs.find((d) => d.aircraftUuid === cmd.aircraftUuid);
     if (doc) await ctx.db.replace(doc._id, record);
     else await ctx.db.insert("faaMonitors", record);
-    await audit(ctx, state.user.id, "faa." + cmd.kind, cmd.aircraftUuid, {
-      aircraftUuid: cmd.aircraftUuid,
-      after: cmd,
-    });
+    await writeAudit(ctx, entry);
   },
 });
 
@@ -254,24 +248,6 @@ function findMonitor(ctx: QueryCtx | MutationCtx, aircraftUuid: string) {
 
 function parseMonitor(doc: Doc<"faaMonitors">) {
   return faaMonitorSchema.parse(JSON.parse(doc.payload));
-}
-
-async function assertMonitorCapacity(ctx: MutationCtx, aircraftUuid: string) {
-  const aircraft = await findAircraft(ctx, aircraftUuid);
-  if (!aircraft) throw Error("Aircraft not found.");
-  const fleet = await ctx.db
-    .query("aircraft")
-    .withIndex("program", (q) => q.eq("programUuid", aircraft.programUuid))
-    .collect();
-  let enabled = 0;
-  for (const a of fleet) {
-    const doc = await findMonitor(ctx, a.uuid);
-    if (doc && parseMonitor(doc).enabled) enabled++;
-  }
-  if (enabled >= MAX_ENABLED_FAA_MONITORS)
-    throw new ConvexError(
-      `A Flight Program can monitor at most ${MAX_ENABLED_FAA_MONITORS} aircraft daily. Turn off monitoring on another aircraft first.`,
-    );
 }
 
 async function scheduleRun(

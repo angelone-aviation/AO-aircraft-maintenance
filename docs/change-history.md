@@ -2,9 +2,9 @@
 
 **Change history** (`/history`) is the append-only change log of the active Flight Program: every submission, correction and administrative change, newest first, with who made it, when, the reason where one was required, and the recorded values before and after. Anyone who can read the program can open it; what each person sees follows the same visibility rules as their snapshot, so inventory, cost and expiring-date entries stay with program administrators and aircraft entries with those who can read the aircraft. Entries about the program's permission groups, its members' access and its saved addresses are also for its administrators only; account-wide entries (password resets, sessions ended, refused sign-ins) are for system administrators in **Unassigned records**. The log is protected by access and off-site backups, not by edits: no code path changes or deletes an entry ([ADR-0005](adr/0005-audit-log-protection-by-access-and-backups.md)). Paging, the aircraft filter and how history follows a record after a Flight Program transfer are described in [Flight Program access](flight-program-access.md).
 
-## Weekly summary
+## Summary
 
-Flight Program administrators get a second tab, **Weekly summary**, for the periodic review of the log without reading it entry by entry.
+Flight Program administrators get a second tab, **Summary**, for the periodic review of the log without reading it entry by entry.
 
 - **Period**: the last 7 days by default, the last 30 days, or a custom range of dates (inclusive). Days are the reviewer's own: the app sends the server its device's midnights at the start and end of the period, so a change made this evening is in "Last 7 days" wherever the reviewer is. A request without them (an older app) counts days in the records time zone (`RECORDS_TIME_ZONE`, US Eastern by default), the same days the server's alerts use.
 - **Changes by person**: one row per person with the number of entries they made in each action family, and a total; most active first. The families group the stored actions by their type: flights and discrepancies (`flight.*`, `discrepancy.*`, `plan.*`); inspections and components; ADs; work orders and job cards; parts and purchasing (`stock.*`, `partsRequest.*`, `po.*`, inventory, locations, vendors); users and access (`user.*`, `group.*`, `program.*`); FAA; and other.

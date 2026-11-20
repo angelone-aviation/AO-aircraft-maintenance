@@ -431,7 +431,7 @@ describe("settings", () => {
     );
     expect(html).toMatch(/Google sign-in<\/span><span[^>]*>.*Not set up/);
     expect(html).toContain(
-      "Urgent emails stop at 60 a day for the whole deployment",
+      "Urgent emails stop at 60 a day for the whole deployment, shared equally between its Flight Programs;",
     );
     expect(html).toContain("once a day at 13:00 UTC");
     ui.states.clear();

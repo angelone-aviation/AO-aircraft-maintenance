@@ -25,6 +25,7 @@ const PDF_VIEWER_FILES = collectPdfViewerFiles();
 // Only the production deploy has it (docs/runbooks/monitoring.md); without it
 // the build makes no source maps at all.
 const SENTRY_AUTH_TOKEN = process.env.SENTRY_AUTH_TOKEN;
+const LOCAL_ONLY = "localhost";
 
 /** The app's build, dev server and offline service worker. */
 export default defineConfig({
@@ -49,12 +50,17 @@ export default defineConfig({
       },
     ],
   },
+  // This computer only (security review S18): the hangar Wi-Fi is shared.
+  // The development container passes --host 0.0.0.0 behind a port it
+  // publishes on the host's loopback only (README).
   server: {
+    host: LOCAL_ONLY,
     port: 5173,
     strictPort: true,
     // Container-mounted edits do not always produce filesystem notifications.
     watch: { usePolling: true, interval: 500 },
   },
+  preview: { host: LOCAL_ONLY },
   build: {
     // Hidden: no bundle names its map, and the Sentry plugin deletes the maps
     // after uploading them, so none is published.

@@ -78,15 +78,17 @@ export function numberEntryProblem(inserted: string): string | undefined {
  * @param text - The typed hours, such as "1234.5" or "1,234.5".
  * @returns The seconds, or undefined when the value is blank.
  * @throws {Rejection} {@link DECIMAL_COMMA_MESSAGE} for a comma that may be
- *   a decimal comma; "Use positive hours with at most one decimal place."
- *   for any other text (spaces around a number included; "0" passes);
+ *   a decimal comma; "Use hours of 0 or more, with at most one decimal place."
+ *   for any other text (spaces around a number included);
  *   "Meter reading is too large." past the largest safe integer.
  */
 export function parseHours(text: string): number | undefined {
   if (!text.trim()) return undefined;
   const value = plainNumberText(text);
   if (!/^\d+(\.\d)?$/.test(value))
-    throw new Rejection("Use positive hours with at most one decimal place.");
+    throw new Rejection(
+      "Use hours of 0 or more, with at most one decimal place.",
+    );
   const result = Math.round(Number(value) * SECONDS_PER_HOUR);
   if (!Number.isSafeInteger(result))
     throw new Rejection("Meter reading is too large.");

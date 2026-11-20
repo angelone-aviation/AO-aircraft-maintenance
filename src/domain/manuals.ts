@@ -9,7 +9,7 @@ import { z } from "zod";
 import { can, type Snapshot } from "./model";
 import { Rejection } from "./rejection";
 
-/** The largest manual PDF accepted: 200 MiB (the refusal says "200 MB"). */
+/** The largest manual PDF accepted: 200 MiB. */
 export const MAX_MANUAL_BYTES = 200 * 1024 * 1024;
 
 /** Longest manufacturer or model an applicability names. */
@@ -66,7 +66,7 @@ export type ManualReference = z.infer<typeof manualReferenceSchema>;
  * Checks a manual file before upload.
  *
  * @param file - The file's name, size in bytes and MIME type ("" if unknown).
- * @throws {Rejection} "Choose a PDF up to 200 MB." unless the name ends in
+ * @throws {Rejection} "Choose a PDF up to 200 MiB." unless the name ends in
  *   ".pdf" (any case), the type is "" or a PDF's, and the size is in range.
  */
 export function validateManualFile(file: {
@@ -80,7 +80,7 @@ export function validateManualFile(file: {
     file.size <= 0 ||
     file.size > MAX_MANUAL_BYTES
   )
-    throw new Rejection("Choose a PDF up to 200 MB.");
+    throw new Rejection("Choose a PDF up to 200 MiB.");
 }
 
 /**

@@ -259,15 +259,22 @@ export const validationErrors = (error: unknown) =>
   error instanceof ZodError ? validationText(error) || undefined : undefined;
 
 /**
- * An `expose` policy that shows every applier error, including parser
- * errors, as a user-facing rejection.
+ * An `expose` policy that shows `message` in place of any error that is not
+ * a Rejection, such as a malformed payload's parser error or a runtime
+ * fault, so users never see the runtime's own text. The log gets the
+ * error's class and stack frames for diagnosis, never its message, which
+ * can quote the payload and the personal data in it.
  *
- * @returns A ZodError's issue text, as {@link validationErrors}; else the
- *   error's message, or the thrown value as text.
+ * @param message - What users see instead.
+ * @returns The policy; it always returns `message`.
  */
-export const allErrors = (error: unknown) =>
-  validationErrors(error) ??
-  (error instanceof Error ? error.message : String(error));
+export const hideErrors = (message: string) => (error: unknown) => {
+  console.error("A command hid an unexpected error from the user.", {
+    error: error instanceof Error ? error.name : typeof error,
+    at: error instanceof Error ? stackFrames(error) : [],
+  });
+  return message;
+};
 
 /**
  * An `expose` policy that shows errors of one class only.
@@ -452,8 +459,8 @@ const HYDRATORS: Record<Need, Hydrator> = {
       docs.inspectionTemplates,
     );
   },
-  costs: async (ctx, { program, aircraft }, { docs, snapshot }) => {
-    docs.costs = await costDocs(ctx, program, aircraft);
+  costs: async (ctx, { program }, { docs, snapshot }) => {
+    docs.costs = await costDocs(ctx, program);
     snapshot.costs = decode("costs", docs.costs);
   },
   // The deployment's own dates load only for a system administrator.
@@ -575,6 +582,13 @@ async function insertUnclaimed<N extends UuidCollection>(
     .first();
   if (stored) throw new ConvexError(RECORD_TAKEN);
   await ctx.db.insert(collection, row);
+}
+
+// A stack's frame lines, without the message lines that open it.
+function stackFrames(error: Error): string[] {
+  return (error.stack ?? "")
+    .split("\n")
+    .filter((line) => line.trimStart().startsWith("at "));
 }
 
 // A Rejection, or an error the command's own policy names, becomes a

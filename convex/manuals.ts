@@ -82,7 +82,7 @@ type BlobMetadata = {
  * @param sha256 - The PDF's base64 SHA-256, which the stored blob must match.
  * @param programUuid - The caller's active Flight Program.
  * @returns The ticket and the URL to upload the PDF to.
- * @throws {ConvexError} In order: "Choose a PDF up to 200 MB."; "Invalid file
+ * @throws {ConvexError} In order: "Choose a PDF up to 200 MiB."; "Invalid file
  *   checksum."; "Maintenance access is required to upload a manual."; "Too
  *   many manual uploads. Wait an hour and try again." past
  *   {@link MANUAL_UPLOADS_PER_HOUR}.

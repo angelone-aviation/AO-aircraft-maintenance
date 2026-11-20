@@ -1224,7 +1224,7 @@ function discardEntry(uuid: string, discard: Workspace["discard"]) {
 /**
  * The program's append-only change history, newest first, for all records or
  * one aircraft, loaded a page at a time; Flight Program administrators also
- * get the Weekly summary tab (src/components/AuditSummary.tsx).
+ * get the Summary tab (src/components/AuditSummary.tsx).
  *
  * @returns The entries with their reasons and recorded values. Offline it
  *   lists only the recent changes saved on this device.
@@ -1246,7 +1246,7 @@ export function History() {
               label="History view"
               options={[
                 { value: "log", label: "Change log" },
-                { value: "summary", label: "Weekly summary" },
+                { value: "summary", label: "Summary" },
               ]}
               value={tab}
               onChange={(value) => setTab(value as "log" | "summary")}

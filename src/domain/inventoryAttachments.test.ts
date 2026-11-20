@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins the inventory attachment file rule, the check of a
- *   file's first bytes, and who may manage an item's attachments.
+ *   file's first bytes, who may manage an item's attachments, and the rows a
+ *   purchase-order upload logs.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/inventoryAttachments.ts, rejection.ts,
  *   src/data/demo.ts (fixture).
@@ -14,6 +15,8 @@ import {
   inventoryAttachmentAccess,
   matchesFileType,
   validateInventoryFile,
+  poAttachmentChanges,
+  receiptItemUuids,
 } from "./inventoryAttachments";
 import { Rejection } from "./rejection";
 import type { Stock } from "./management";
@@ -157,7 +160,7 @@ describe("attachment files", () => {
       expect(() => validateInventoryFile(name, type, 1)).toThrow(Rejection);
       expect(() => validateInventoryFile(name, type, 1)).toThrow(wrongFile);
     }
-    const wrongSize = Error("Attachments must be between 1 byte and 7 MB.");
+    const wrongSize = Error("Attachments must be between 1 byte and 7 MiB.");
     for (const size of [0, 1.5, MAX_ACTION_FILE_BYTES + 1]) {
       expect(() =>
         validateInventoryFile("a.pdf", "application/pdf", size),
@@ -225,5 +228,47 @@ describe("attachment access", () => {
     const member = workspace();
     member.user = member.members[1];
     expect(() => inventoryAttachmentAccess(member, "oil")).toThrow(denied);
+  });
+});
+
+describe("purchase-order upload rows (T3)", () => {
+  const po = { uuid: "po", number: "PO-7", programUuid: "program" };
+  const file = { name: "invoice.pdf", size: 9, type: "application/pdf" };
+  const receipt = {
+    uuid: "receipt",
+    lines: [{ itemUuids: ["lot-a", "lot-b"] }, { itemUuids: ["lot-a"] }],
+  } as never;
+
+  it("lists each item a receipt brought in once, in receipt order", () => {
+    expect(receiptItemUuids(receipt)).toEqual(["lot-a", "lot-b"]);
+    expect(receiptItemUuids(undefined)).toEqual([]);
+  });
+  it("logs the order's file, then a receipt's copy on each item", () => {
+    const stored = { name: "invoice.pdf", size: 9 };
+    expect(poAttachmentChanges(po, undefined, file)).toEqual([
+      {
+        action: "purchaseOrder.attachment",
+        entityUuid: "po",
+        programUuid: "program",
+        reason: "Purchase order attachment uploaded",
+        after: stored,
+      },
+    ]);
+    expect(poAttachmentChanges(po, receipt, file)).toEqual([
+      {
+        action: "purchaseOrder.attachment",
+        entityUuid: "po",
+        programUuid: "program",
+        reason: "Receipt attachment uploaded",
+        after: { ...stored, receiptUuid: "receipt" },
+      },
+      ...["lot-a", "lot-b"].map((entityUuid) => ({
+        action: "inventory.attachment",
+        entityUuid,
+        programUuid: "program",
+        reason: "Receipt attachment from PO-7",
+        after: stored,
+      })),
+    ]);
   });
 });

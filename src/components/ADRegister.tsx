@@ -3,8 +3,8 @@
  *   grouped into the airframe and each component, one table row per AD.
  * Layer: UI. React component; actions are handed to the parent screen.
  * Dependencies: @phosphor-icons/react, src/domain/airworthiness.ts,
- *   src/domain/adWorkOrders.ts, src/domain/model.ts (types),
- *   ./adRegister.css, ./ADWorkOrderButton, ./MaintenanceUi, ./design, ./ui.
+ *   src/domain/model.ts (types), ./adRegister.css, ./ADWorkOrderButton,
+ *   ./MaintenanceUi, ./design, ./ui.
  *
  * Each group is a table built from ARIA roles on plain elements, so its rows
  * can restack on a phone without losing the table a screen reader hears.
@@ -26,7 +26,6 @@ import {
   staleInitialLimitNotice,
   staleInitialLimits,
 } from "../domain/airworthiness";
-import { OPEN_AD_STATUSES } from "../domain/adWorkOrders";
 import type { Snapshot } from "../domain/model";
 import "./adRegister.css";
 import { ADWorkOrderButton } from "./ADWorkOrderButton";
@@ -198,7 +197,7 @@ function ADRow(props: RowProps) {
         {r.source.effective || "—"}
       </div>
       <ADStatusCell record={r} status={status} stale={stale} />
-      <ADActions {...props} status={status} stale={stale} />
+      <ADActions {...props} stale={stale} />
     </div>
   );
 }
@@ -256,9 +255,7 @@ function ADStatusCell(props: {
   );
 }
 
-function ADActions(
-  props: RowProps & { status: string; stale: StaleInitialLimit[] },
-) {
+function ADActions(props: RowProps & { stale: StaleInitialLimit[] }) {
   const { record: r, editable } = props;
   return (
     <div role="cell" className="ad-register-actions">
@@ -288,9 +285,7 @@ function ADActions(
           Clear initial limit
         </button>
       ))}
-      {OPEN_AD_STATUSES.includes(props.status) && (
-        <ADWorkOrderButton state={props.state} record={r} />
-      )}
+      <ADWorkOrderButton state={props.state} record={r} />
     </div>
   );
 }

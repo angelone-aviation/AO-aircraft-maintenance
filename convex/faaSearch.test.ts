@@ -10,6 +10,7 @@
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
+import type { MutationCtx } from "./_generated/server";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -289,3 +290,46 @@ it("refuses past the global daily allowance, keeping the program's count unspent
   );
   expect(keys).toEqual(["faa:global"]);
 });
+
+// Security review T8: one key serves every Flight Program, so each gets an
+// equal share of the day, never below the floor; the total still binds.
+it.each([
+  [1, FAA_GLOBAL_DAILY],
+  [4, 1250],
+  [40, 250],
+])("gives each of %i Flight Programs %i FAA requests a day", async (programs, share) => {
+  const { t, editor } = await fixture();
+  await t.run(async (ctx) => {
+    await addPrograms(ctx, programs - 1);
+    await setCount(ctx, "faa:program:demo-program", share - 1);
+  });
+  const reserve = () =>
+    editor.mutation(internal.faaSearch.reserve, {
+      programUuid: "demo-program",
+    });
+  await reserve();
+  await expect(reserve()).rejects.toMatchObject(
+    shown(
+      "This Flight Program's FAA search allowance for today is used. Try again tomorrow.",
+    ),
+  );
+});
+
+async function addPrograms(ctx: MutationCtx, count: number) {
+  const base = demoSnapshot().programs![0];
+  for (let i = 0; i < count; i++)
+    await ctx.db.insert("programs", {
+      ...base,
+      uuid: `other-${i}`,
+      name: `Other ${i}`,
+    });
+}
+
+async function setCount(ctx: MutationCtx, key: string, count: number) {
+  const now = Date.now();
+  await ctx.db.insert("rateLimits", {
+    key,
+    windowStart: now - (now % DAY),
+    count,
+  });
+}

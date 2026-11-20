@@ -87,7 +87,7 @@ describe("parseInspectionSetupCsv", () => {
     );
     expect(() =>
       parseInspectionSetupCsv(inspectionCsv.replace("2300.5", "2300.55")),
-    ).toThrow(/^Row 3: Use positive hours with at most one decimal place\./);
+    ).toThrow(/^Row 3: Use hours of 0 or more, with at most one decimal place\./);
     expect(() =>
       parseInspectionSetupCsv(inspectionCsv.replace(",,12,", ",,twelve,")),
     ).toThrow(/^Row 2: Use whole numbers/);
@@ -139,8 +139,11 @@ describe("parseAdSetupCsv", () => {
       parseAdSetupCsv(adCsv.replace(",2300,,yes,", ",2300,,maybe,")),
     ).toThrow("Row 2: recurring must be yes, no or blank.");
     expect(() => parseAdSetupCsv(adCsv.replace("2200", "2200h"))).toThrow(
-      /^Row 2: Use positive hours/,
+      "Row 2: Use hours of 0 or more, such as 1234.5.",
     );
+    expect(parseAdSetupCsv(adCsv.replace("2200", "0"))[0]).toMatchObject({
+      complianceHours: 0,
+    });
   });
 });
 
@@ -182,6 +185,20 @@ describe("planAircraftSetup", () => {
       "ad-number:2025-01-03",
     ]);
     expect(plan.confirmations).toEqual([]);
+  });
+  it("marks each inspection it saves as setup's, so the server refuses a repeat (NA-11)", () => {
+    const s = demoSnapshot();
+    const plan = planAircraftSetup(s, AIRCRAFT, parsed(), { now: NOW });
+    const first = plan.actions.find((a) => a.step === "inspections")!;
+    expect(first.command).toMatchObject({ initialAircraftSetup: true });
+    applyManagement(s, first.command as never, NOW);
+    // A second run planned from the snapshot before the first one saved.
+    const again = planAircraftSetup(demoSnapshot(), AIRCRAFT, parsed(), {
+      now: NOW,
+    }).actions[0];
+    expect(() => applyManagement(s, again.command as never, NOW)).toThrow(
+      "An inspection with this name is already on the aircraft.",
+    );
   });
   it("builds commands the inspection and AD appliers accept", () => {
     const s = demoSnapshot();

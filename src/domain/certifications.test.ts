@@ -102,7 +102,7 @@ it("validates dates, duplicate selections and license copy formats and limits", 
       "application/pdf",
       6 * 1024 * 1024,
     ),
-  ).toThrow(/5 MB/);
+  ).toThrow(/5 MiB/);
 });
 it("refuses a long certificate number or a sixth certificate in plain words", () => {
   const refusal = (rows: Certification[]) => {
@@ -228,7 +228,7 @@ it("accepts a license copy up to 5 MiB with a 200-character name, refusing with 
   ).toThrow(Error("Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy."));
   expect(() =>
     validateCertificationFile("license.pdf", "application/pdf", 0),
-  ).toThrow(Error("License copies must be between 1 byte and 5 MB."));
+  ).toThrow(Error("License copies must be between 1 byte and 5 MiB."));
 });
 it("refuses a license copy whose type is named after an Object property", () => {
   for (const type of ["constructor", "toString", "__proto__"]) {

@@ -2,19 +2,135 @@
  * Responsibility: The owner portal: who gets it, the read-only rule for owner
  *   groups, and the snapshot an aircraft owner may read.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./model, ./management, ./workOrders, ./programs, ./adOwnership,
- *   ./aircraftFiles, ./rejection.
+ * Dependencies: ./model, ./management, ./workOrders, ./airworthiness,
+ *   ./deferrals, ./programs, ./adOwnership, ./pickFields, ./aircraftFiles,
+ *   ./rejection.
  *
  * The owner snapshot is built as a whitelist, so a field added to the snapshot
- * stays hidden from owners until someone decides they may see it.
+ * stays hidden from owners until someone decides they may see it. Owners read
+ * their aircraft's compliance records in full, people's names and
+ * certificate numbers included, but never an internal user id (decision D15).
  */
-import type { Aircraft, Discrepancy, Group, Snapshot } from "./model";
+import type {
+  Aircraft,
+  Discrepancy,
+  Group,
+  Inspection,
+  Snapshot,
+} from "./model";
 import type { ManagedRecord } from "./management";
 import type { WorkOrder } from "./workOrders";
+import type { AD, ADCompliance, ADSource } from "./airworthiness";
+import type { Deferral } from "./deferrals";
 import { groupCoversAircraft, reducedViewGroups } from "./programs";
 import { adAircraftUuid } from "./adOwnership";
+import { pickFields } from "./pickFields";
 import { isCurrentAircraftFile, type AircraftFile } from "./aircraftFiles";
 import { Rejection } from "./rejection";
+
+/**
+ * The compliance fields the owner portal copies from each kind of record, by
+ * name. Everything else is left out: the inspection's parts and materials,
+ * and the user ids of who recorded a compliance or set a calendar exemption
+ * (the mechanic's name and certificate number stay).
+ */
+export const OWNER_FIELDS = {
+  inspection: [
+    "uuid",
+    "version",
+    "programUuid",
+    "aircraftUuid",
+    "componentUuid",
+    "reference",
+    "description",
+    "ataChapter",
+    "sourceKey",
+    "manualReference",
+    "usageMeter",
+    "calendarExempt",
+    "calendarExemptReason",
+    "calendarExemptChangedAt",
+    "dueSeconds",
+    "dueCycles",
+    "dueLandings",
+    "dueDate",
+    "intervalSeconds",
+    "intervalLandings",
+    "intervalCycles",
+    "intervalMonths",
+    "lastSeconds",
+    "lastCycles",
+    "lastLandings",
+    "lastDate",
+    "archived",
+  ],
+  ad: [
+    "uuid",
+    "version",
+    "programUuid",
+    "aircraftUuid",
+    "componentUuid",
+    "applicability",
+    "priorCompliance",
+    "reason",
+    "reviewRequired",
+    "updatedAt",
+  ],
+  adSource: [
+    "number",
+    "faaModified",
+    "amendment",
+    "issued",
+    "effective",
+    "subject",
+    "recurring",
+    "supersededBy",
+    "url",
+    "source",
+    "section",
+    "make",
+    "model",
+    "sourceNotes",
+  ],
+  adTask: [
+    "uuid",
+    "description",
+    "dueDate",
+    "dueHours",
+    "dueCycles",
+    "dueLandings",
+    "intervalLandings",
+    "intervalDays",
+    "intervalHours",
+    "intervalCycles",
+    "recurrence",
+    "workOrderUuid",
+  ],
+  adCompliance: [
+    "uuid",
+    "taskUuid",
+    "date",
+    "hours",
+    "cycles",
+    "landings",
+    "method",
+    "serviceBulletin",
+    "terminatedBy",
+    "workOrderUuid",
+    "mechanic",
+    "certificate",
+    "evidence",
+    "recordedAt",
+    "corrects",
+    "correctionReason",
+  ],
+} as const satisfies {
+  inspection: readonly (keyof Inspection)[];
+  ad: readonly (keyof AD)[];
+  adSource: readonly (keyof ADSource)[];
+  adTask: readonly (keyof AD["tasks"][number])[];
+  adCompliance: readonly (keyof ADCompliance)[];
+};
 
 /**
  * Refuses an owner group (`owner: true`) that could write or administer:
@@ -93,10 +209,10 @@ export function ownerSnapshot(s: Snapshot): Snapshot {
       .map(toOwnerDiscrepancy),
     inspections: s.inspections
       .filter((i) => !i.archived && ids.has(i.aircraftUuid))
-      .map(({ requiredParts: _parts, materials: _materials, ...i }) => i),
-    airworthiness: (s.airworthiness ?? []).filter((r) =>
-      ids.has(adAircraftUuid(s, r)),
-    ),
+      .map(toOwnerInspection),
+    airworthiness: (s.airworthiness ?? [])
+      .filter((r) => ids.has(adAircraftUuid(s, r)))
+      .map(toOwnerAD),
     management: (s.management ?? []).flatMap((r) =>
       toOwnerRecords(r, components),
     ),
@@ -161,7 +277,48 @@ function toOwnerDiscrepancy(d: Discrepancy): Discrepancy {
     createdAt: d.createdAt,
     authorId: "",
     grounding: d.grounding,
-    deferral: d.deferral,
+    deferral: d.deferral && toOwnerDeferral(d.deferral),
+  };
+}
+
+// The deferring person's name stays; their user id does not.
+function toOwnerDeferral(d: Deferral): Deferral {
+  const recorded = {
+    placard: d.placard,
+    deferredOn: d.deferredOn,
+    deferredAt: d.deferredAt,
+    deferredBy: "",
+    deferredByName: d.deferredByName,
+    expiresOn: d.expiresOn,
+  };
+  if (d.type === "91.213d")
+    return { type: d.type, notHazard: d.notHazard, ...recorded };
+  return {
+    type: d.type,
+    melItem: d.melItem,
+    category: d.category,
+    days: d.days,
+    ...recorded,
+  };
+}
+
+function toOwnerInspection(i: Inspection): Inspection {
+  return pickFields(i, OWNER_FIELDS.inspection);
+}
+
+function toOwnerAD(r: AD): AD {
+  return {
+    ...pickFields(r, OWNER_FIELDS.ad),
+    source: pickFields(r.source, OWNER_FIELDS.adSource),
+    sourceHistory: r.sourceHistory.map((h) => ({
+      at: h.at,
+      source: pickFields(h.source, OWNER_FIELDS.adSource),
+    })),
+    tasks: r.tasks.map((t) => pickFields(t, OWNER_FIELDS.adTask)),
+    history: r.history.map((h) => ({
+      ...pickFields(h, OWNER_FIELDS.adCompliance),
+      recordedBy: "",
+    })),
   };
 }
 

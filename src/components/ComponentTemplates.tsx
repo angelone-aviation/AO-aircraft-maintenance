@@ -481,7 +481,7 @@ async function importCsv(
 ) {
   if (!file) return;
   if (file.size > CSV_MAX_BYTES) {
-    onError("CSV must be under 2 MB.");
+    onError("CSV must be under 2 MiB.");
     return;
   }
   try {

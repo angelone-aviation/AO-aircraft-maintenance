@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins the shell's and the shared dialog's interface: nested
  *   Escape, focus kept clear of sticky footers, focus-ring contrast, the Job
- *   cards link, the sections sheet, the theme before first paint, and the
- *   chosen chip's label under the pointer.
+ *   cards link, the sections sheet, the theme before first paint, a theme
+ *   switch with no half-faded surfaces, and the chosen chip's label under
+ *   the pointer.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  *
@@ -315,11 +316,30 @@ test("the All sections sheet stays closed after the window passes through deskto
   await expect(sheet).toBeVisible();
 });
 
+test("a theme switch repaints every colour at once, in both directions", async ({
+  page,
+}) => {
+  await page.setViewportSize(DESKTOP);
+  await demo(page);
+  await expect(
+    page.getByRole("heading", { name: "Your fleet, at a glance." }),
+  ).toBeVisible();
+  expect(await fadingAfterThemeSwitch(page, "Switch to dark theme")).toEqual(
+    [],
+  );
+  expect(await fadingAfterThemeSwitch(page, "Switch to light theme")).toEqual(
+    [],
+  );
+});
+
 test.describe("theme before first paint (ui-2)", () => {
   /** Records whether <html> is dark when the parser inserts <body>. The app's
    * module script runs only after parsing, so a theme it applies paints at
    * least one frame in the wrong palette. */
-  async function recordThemeAtBody(page: Page, saved?: "dark" | "light") {
+  async function recordThemeAtBody(
+    page: Page,
+    saved?: "dark" | "light" | "system",
+  ) {
     await page.addInitScript((theme) => {
       sessionStorage.setItem("angel-one-demo", "true");
       if (theme && !sessionStorage.getItem("theme-seeded")) {
@@ -391,6 +411,18 @@ test.describe("theme before first paint (ui-2)", () => {
     expect(await darkAtBody(page)).toBe(false);
     await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
   });
+
+  test("a saved Match this device applies the device's dark setting before the body (B9)", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await recordThemeAtBody(page, "system");
+    await page.goto("/");
+    await ready(page);
+    expect(await darkAtBody(page)).toBe(true);
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
+  });
 });
 
 async function demo(page: Page, path = "/") {
@@ -398,6 +430,47 @@ async function demo(page: Page, path = "/") {
     sessionStorage.setItem("angel-one-demo", "true"),
   );
   await page.goto(path);
+}
+
+/**
+ * Switches the theme with the named toggle and lists the elements whose
+ * colours still change after the first two frames: a surface fading while the
+ * rest of the page has already switched leaves light and dark mixed.
+ *
+ * @returns Each such element as `tag.class`, once; empty when none.
+ */
+async function fadingAfterThemeSwitch(page: Page, toggleName: string) {
+  return page.evaluate(async (name) => {
+    const frame = () => new Promise((done) => requestAnimationFrame(done));
+    const colours = (el: Element) => {
+      const cs = getComputedStyle(el);
+      return [cs.backgroundColor, cs.color, cs.borderTopColor, cs.fill].join();
+    };
+    document
+      .querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!
+      .click();
+    await frame();
+    await frame();
+    const elements = [...document.querySelectorAll("body, body *")];
+    const early = elements.map(colours);
+    // A transition that a later style change cancels rejects `finished`; it
+    // has stopped either way, which is all the wait needs.
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a instanceof CSSTransition)
+        .map((a) => a.finished.catch(() => undefined)),
+    );
+    const fading = elements.filter(
+      (el, i) => el.isConnected && colours(el) !== early[i],
+    );
+    const names = fading.map((el) =>
+      [el.localName, ...(el.getAttribute("class") ?? "").split(/\s+/)]
+        .filter(Boolean)
+        .join("."),
+    );
+    return [...new Set(names)];
+  }, toggleName);
 }
 
 /**

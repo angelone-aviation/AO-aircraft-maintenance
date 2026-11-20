@@ -4,9 +4,9 @@
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
- *   ./urgentAlerts, ./memberships, ./validators, src/domain (model, programs,
- *   flightSubmission, flightReview, ownerView, boardView, deferrals,
- *   requiredParts, rejection, aircraftStatus).
+ *   ./urgentAlerts, ./memberships, ./validators, ./recordsDate, src/domain
+ *   (model, programs, flightSubmission, flightReview, ownerView, boardView,
+ *   deferrals, requiredParts, rejection, aircraftStatus).
  */
 import { v } from "convex/values";
 import {
@@ -25,6 +25,7 @@ import {
   inspectionDocs,
   flightDocs,
   discrepancyDocs,
+  openReportDocs,
   taskCardDocs,
   archivedTaskCardDocs,
   workOrderDocs,
@@ -46,6 +47,7 @@ import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
 import { faaCredentialStatus } from "./faaCredentials";
 import { scheduleUrgentAlerts } from "./urgentAlerts";
+import { recordsDate } from "./recordsDate";
 import { programUsers } from "./memberships";
 import { flightFields, operationValidator } from "./validators";
 import {
@@ -115,7 +117,9 @@ export const snapshot = query({
     if (!isOwnerView(state) && !isBoardView(state))
       return workspaceSnapshot(ctx, identity, state);
     const records = await reducedViewRecords(ctx, identity, state);
-    return addReducedViewExtras(ctx, scopedSnapshot(records));
+    // The board's "this year" and "this quarter" turn over at the program's
+    // midnight, not the server's UTC one.
+    return addReducedViewExtras(ctx, scopedSnapshot(records, recordsDate()));
   },
 });
 
@@ -416,7 +420,7 @@ async function boardCostRecords(
       "partsRequests",
       await partsRequestDocs(ctx, program),
     ),
-    costs: decode("costs", await costDocs(ctx, program, aircraft)),
+    costs: decode("costs", await costDocs(ctx, program)),
   };
 }
 
@@ -443,7 +447,7 @@ async function fullSnapshot(
     management: decode("management", management),
     audit: await auditDocs(ctx, program, aircraft),
     // scopedSnapshot strips rates and money for non-administrators.
-    costs: decode("costs", await costDocs(ctx, program, aircraft)),
+    costs: decode("costs", await costDocs(ctx, program)),
     expiringItems: decode(
       "expiringItems",
       await expiringItemDocs(ctx, program, user.isAdmin === true),
@@ -704,11 +708,12 @@ async function submissionState(
       snapshot: { ...state, flights: [existing] },
     };
   const management = await managementDocs(ctx, activeProgram(state));
-  const snapshot = await flightState(ctx, state, operation.input, management);
+  const snapshot = await flightState(ctx, state, operation, management);
   return { aircraft, management, snapshot };
 }
 
-// A report's earlier submission, or else the flight it was raised on.
+// A report's earlier submission, or else the flight it was raised on and its
+// author's open reports, for their backlog limit.
 async function reportState(
   ctx: MutationCtx,
   state: Snapshot,
@@ -718,27 +723,36 @@ async function reportState(
     .query("discrepancies")
     .withIndex("uuid", (q) => q.eq("uuid", operation.uuid))
     .unique();
-  const flight =
-    !existing && operation.flightUuid
-      ? await ctx.db
-          .query("flights")
-          .withIndex("uuid", (q) => q.eq("uuid", operation.flightUuid!))
-          .unique()
-      : null;
-  return { ...state, discrepancies: rowsOf(existing), flights: rowsOf(flight) };
+  if (existing) return { ...state, discrepancies: [existing], flights: [] };
+  const flight = operation.flightUuid
+    ? await ctx.db
+        .query("flights")
+        .withIndex("uuid", (q) => q.eq("uuid", operation.flightUuid!))
+        .unique()
+    : null;
+  return {
+    ...state,
+    discrepancies: await openReportDocs(ctx, operation.authorId),
+    flights: rowsOf(flight),
+  };
 }
 
 // A new flight is checked against this aircraft's airworthiness state for the
 // dispatch gate (program-wide ADs, so those that follow an installed
 // component count), the program's stock for oil drawn on the flight line,
-// its checklist run and plan, and its crew.
+// its checklist run and plan, its crew, and, when it files a report, its
+// author's open reports for their backlog limit.
 async function flightState(
   ctx: MutationCtx,
   state: Snapshot,
-  input: FlightInput,
+  { authorId, input }: Extract<Operation, { kind: "flight" }>,
   management: Doc<"management">[],
 ): Promise<Snapshot> {
   const only = state.aircraft.filter((a) => a.uuid === input.aircraftUuid);
+  const reports = await discrepancyDocs(ctx, only);
+  const backlog = input.discrepancy.trim()
+    ? await openReportDocs(ctx, authorId)
+    : [];
   const crew = await Promise.all(
     [input.pilotId, input.copilotId]
       .filter(Boolean)
@@ -752,7 +766,10 @@ async function flightState(
       "airworthiness",
       await airworthinessDocs(ctx, state.aircraft),
     ),
-    discrepancies: await discrepancyDocs(ctx, only),
+    discrepancies: [
+      ...reports,
+      ...backlog.filter((d) => d.aircraftUuid !== input.aircraftUuid),
+    ],
     checklists: decode("checklists", await checklistRunRows(ctx, input)),
     flightPlans: decode("flightPlans", await planRows(ctx, input)),
     flights: await planFlights(ctx, input.flightPlanUuid),

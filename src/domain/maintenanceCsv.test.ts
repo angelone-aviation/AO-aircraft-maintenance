@@ -180,13 +180,13 @@ it("keeps unknown values blank and validates calendar units without rounding the
   expect(batch.inspections[0].months).toBeUndefined();
 });
 it("rejects oversized or excessive-row files", () => {
-  expect(() => readCsv("x".repeat(2 * 1024 * 1024 + 1))).toThrow("2 MB");
+  expect(() => readCsv("x".repeat(2 * 1024 * 1024 + 1))).toThrow("2 MiB");
   expect(() => readCsv("id\n" + "x\n".repeat(2001))).toThrow("2,000");
 });
 it("reads text up to the exported default size", () => {
   expect(readCsv("x".repeat(CSV_MAX_BYTES))).toHaveLength(1);
   expect(() => readCsv("x".repeat(CSV_MAX_BYTES + 1))).toThrow(
-    `CSV files must be at most ${CSV_MAX_MEGABYTES} MB.`,
+    `CSV files must be at most ${CSV_MAX_MEGABYTES} MiB.`,
   );
 });
 it("deduplicates imported tasks per saved parent while allowing the same source for another parent", () => {
@@ -231,7 +231,7 @@ it("reports spreadsheet rows, counting blank rows the reader skips", () => {
 
 it("refuses unreadable files as a Rejection", () => {
   for (const [text, message] of [
-    ["x".repeat(1024 * 1024 + 1), "CSV files must be at most 1 MB."],
+    ["x".repeat(1024 * 1024 + 1), "CSV files must be at most 1 MiB."],
     ["id\na\nb\nc", "Use at most 2 records per CSV file."],
     ['id\nx"y', "Unexpected quote in CSV."],
     ['id\n"x"y', "Unexpected text after a closing quote."],

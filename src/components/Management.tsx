@@ -2529,8 +2529,8 @@ function NewStockAttachments({ files }: { files: Files }) {
     <section aria-label="New stock attachments">
       <h3>Attachments</h3>
       <p>
-        Choose images and PDFs to upload when you save this item. Up to 7 MB per
-        file.
+        Choose images and PDFs to upload when you save this item. Up to 7 MiB
+        per file.
       </p>
       <InventoryFilePicker
         files={files.pendingFiles}

@@ -391,7 +391,7 @@ describe("template library", () => {
       "Import component CSV",
       file("", 2 * 1024 ** 2 + 1),
     );
-    expect(big).toContain('<p role="alert">CSV must be under 2 MB.</p>');
+    expect(big).toContain('<p role="alert">CSV must be under 2 MiB.</p>');
     const bad = await change("Import component CSV", file("Name\nx"));
     expect(bad).toMatch(/<p role="alert">Use columns:/);
     expect(bad).toContain(`>${HEADER}\n</textarea>`);

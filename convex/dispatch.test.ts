@@ -23,6 +23,7 @@ const modules = import.meta.glob([
   "!./**/*.d.ts",
 ]);
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 const HOUR_SECONDS = 3600;
 const FLIGHT_START = "2026-01-01T10:00:00Z";
 const BEFORE_FLIGHT = Date.parse(FLIGHT_START) - DAY_MS;
@@ -276,10 +277,19 @@ describe("discrepancy grounding flag and deferrals", () => {
   });
   it("lets an authorized user defer a grounding report so the aircraft can fly until expiry", async () => {
     const { t, pilot, admin, ids, flight, report } = await fixture();
-    const d = report();
+    // MX-3: the interval counts from the day the defect was found, so the
+    // report and the flight are recent rather than on the fixture's dates.
+    const reportedAt = Date.now() - DAY_MS;
+    const d = report(undefined, reportedAt);
+    const recentFlight = (baseVersion: number) => {
+      const f = flight(ids.pilot);
+      const startTime = new Date(reportedAt + HOUR_MS).toISOString();
+      return { ...f, baseVersion, input: { ...f.input, startTime } };
+    };
     await t.run((ctx) => ctx.db.insert("discrepancies", d));
     const payload = JSON.stringify({
       uuid: d.uuid,
+      foundOn: localDate(reportedAt),
       deferredOn: localDate(),
       deferral: {
         type: "mel",
@@ -318,7 +328,7 @@ describe("discrepancy grounding flag and deferrals", () => {
     ).rejects.toThrow("already deferred");
     expect(
       await pilot.mutation(api.operations.submit, {
-        operation: flight(ids.pilot),
+        operation: recentFlight(0),
       }),
     ).toEqual({ status: "accepted" });
     // Once expired, the deferral grounds the aircraft again.
@@ -328,9 +338,7 @@ describe("discrepancy grounding flag and deferrals", () => {
       }),
     );
     await expect(
-      pilot.mutation(api.operations.submit, {
-        operation: { ...flight(ids.pilot), baseVersion: 1 },
-      }),
+      pilot.mutation(api.operations.submit, { operation: recentFlight(1) }),
     ).rejects.toThrow("deferral expired 2020-01-01");
   });
   it("cannot defer another program's report", async () => {
@@ -341,6 +349,7 @@ describe("discrepancy grounding flag and deferrals", () => {
       admin.mutation(api.operations.deferDiscrepancy, {
         payload: JSON.stringify({
           uuid: d.uuid,
+          foundOn: localDate(),
           deferredOn: localDate(),
           deferral: { type: "91.213d", placard: "INOP", notHazard: true },
         }),

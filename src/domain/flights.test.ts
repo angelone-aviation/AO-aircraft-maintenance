@@ -433,13 +433,12 @@ describe("resequenceReason", () => {
     );
   });
 
-  it("prints the start as written; characterizes current behaviour", () => {
-    // An offset start is not converted: 09:00-05:00 is 14:00 UTC.
+  it("converts a start written with an offset to UTC", () => {
     expect(
       resequenceReason(
         { status: "review" },
-        { status: "accepted", startTime: "2026-10-03T09:00:00-05:00" },
+        { status: "accepted", startTime: "2026-10-03T21:30:00-05:00" },
       ),
-    ).toMatch(/of 2026-10-03 09:00 UTC/);
+    ).toMatch(/of 2026-10-04 02:30 UTC/);
   });
 });

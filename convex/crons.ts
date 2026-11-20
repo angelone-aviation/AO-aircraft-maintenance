@@ -1,8 +1,8 @@
 /**
  * Responsibility: Schedules the deployment's recurring jobs: the FAA AD check,
  *   expired manual-upload cleanup, the sweep of stored files nothing refers
- *   to, the maintenance alert email digest and the urgent alert check that
- *   follows it.
+ *   to, the maintenance alert email digest, the urgent alert check that
+ *   follows it, and the weekly sign-in records cleanup.
  * Layer: Server. Schedules only; each job is an internal function elsewhere.
  * Dependencies: convex/server (cronJobs), convex/_generated/api,
  *   convex/fileSweep, src/domain (alerts, faa: the hours screens also quote).
@@ -12,6 +12,8 @@ import { internal } from "./_generated/api";
 import { SWEEP_FILES } from "./fileSweep";
 import { ALERT_DIGEST_HOUR_UTC } from "../src/domain/alerts";
 import { FAA_CHECK_HOUR_UTC } from "../src/domain/faa";
+
+const SIGN_IN_CLEANUP_HOUR_UTC = 7;
 
 const crons = cronJobs();
 crons.daily(
@@ -40,6 +42,14 @@ crons.daily(
   "Urgent alert check",
   { hourUTC: ALERT_DIGEST_HOUR_UTC, minuteUTC: 10 },
   internal.urgentAlerts.daily,
+  {},
+);
+
+// Sunday before dawn across the Americas, when nobody is signing in.
+crons.weekly(
+  "Sign-in records cleanup",
+  { dayOfWeek: "sunday", hourUTC: SIGN_IN_CLEANUP_HOUR_UTC, minuteUTC: 20 },
+  internal.authCleanup.sweepSessions,
   {},
 );
 

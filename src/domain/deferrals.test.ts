@@ -7,8 +7,10 @@
  *   src/data/demo.ts (seed).
  */
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { demoSnapshot } from "../data/demo";
 import {
+  defectFoundOn,
   deferDiscrepancy,
   deferralDaysRemaining,
   deferralExpired,
@@ -20,6 +22,10 @@ import {
 } from "./deferrals";
 import { localDate } from "./model";
 import { Rejection } from "./rejection";
+
+const DAY_MS = 86_400_000;
+// The demo report was made yesterday, so it was found by yesterday.
+const FOUND_ON = localDate(Date.now() - DAY_MS);
 
 const mel = (category: "A" | "B" | "C" | "D", days?: number) => ({
   type: "mel" as const,
@@ -41,7 +47,7 @@ it("grounds the aircraft only for an open, undeferred grounding report", () => {
 });
 
 describe("deferral expiry", () => {
-  it("adds the category interval to the deferral date", () => {
+  it("adds the category interval to the date the defect was found", () => {
     expect(deferralExpiry(mel("B"), "2026-12-30")).toBe("2027-01-02");
     expect(deferralExpiry(mel("C"), "2026-02-20")).toBe("2026-03-02");
     expect(deferralExpiry(mel("D"), "2026-01-01")).toBe("2026-05-01");
@@ -88,6 +94,7 @@ describe("deferring a discrepancy", () => {
   const today = localDate();
   const command = (deferral: unknown) => ({
     uuid: "demo-report",
+    foundOn: FOUND_ON,
     deferredOn: today,
     deferral,
   });
@@ -100,11 +107,12 @@ describe("deferring a discrepancy", () => {
     expect(d.deferral).toEqual({
       ...mel("B"),
       days: undefined,
+      foundOn: FOUND_ON,
       deferredOn: today,
       deferredAt: now,
       deferredBy: "demo-admin",
       deferredByName: "Alex Morgan",
-      expiresOn: deferralExpiry(mel("B"), today),
+      expiresOn: deferralExpiry(mel("B"), FOUND_ON),
     });
   });
   it("requires custom days for category A only", () => {
@@ -114,7 +122,7 @@ describe("deferring a discrepancy", () => {
       "Category A",
     );
     expect(deferDiscrepancy(s, command(mel("A", 2))).deferral?.expiresOn).toBe(
-      deferralExpiry(mel("A", 2), today),
+      deferralExpiry(mel("A", 2), FOUND_ON),
     );
   });
   it("requires the 91.213(d) hazard determination and records no expiry", () => {
@@ -197,6 +205,60 @@ describe("deferring a discrepancy", () => {
   });
 });
 
+describe("the date the defect was found (MX-3)", () => {
+  const uuid = "demo-report";
+  const REPORTED = Date.parse("2026-11-02T15:00:00Z");
+  const DEFERRED_AT = REPORTED + 5 * DAY_MS;
+  const reportedOnNov2 = () => {
+    const s = demoSnapshot();
+    s.discrepancies[0].createdAt = REPORTED;
+    return s;
+  };
+  const deferFound = (foundOn: string) =>
+    deferDiscrepancy(
+      reportedOnNov2(),
+      { uuid, foundOn, deferredOn: "2026-11-07", deferral: mel("B") },
+      DEFERRED_AT,
+    );
+
+  it("starts an MEL repair interval, however late the deferral is entered", () => {
+    expect(deferFound("2026-11-02").deferral).toMatchObject({
+      foundOn: "2026-11-02",
+      deferredOn: "2026-11-07",
+      expiresOn: "2026-11-05",
+    });
+  });
+  it("may be before the report, or its date anywhere, but not after", () => {
+    expect(deferFound("2026-10-30").deferral?.expiresOn).toBe("2026-11-02");
+    // 15:00 UTC on 2 Nov was already 3 Nov in the furthest-ahead zone.
+    expect(deferFound("2026-11-03").deferral?.expiresOn).toBe("2026-11-06");
+    expect(() => deferFound("2026-11-04")).toThrow(
+      new Rejection("The defect cannot have been found after it was reported."),
+    );
+  });
+  it("is required", () => {
+    expect(() =>
+      deferDiscrepancy(
+        reportedOnNov2(),
+        { uuid, deferredOn: "2026-11-07", deferral: mel("B") },
+        DEFERRED_AT,
+      ),
+    ).toThrow(z.ZodError);
+  });
+  it("reads as the report's own date until a deferral records one", () => {
+    const report = reportedOnNov2().discrepancies[0];
+    expect(defectFoundOn(report)).toBe(localDate(REPORTED));
+    const { foundOn, ...older } = deferFound("2026-10-30").deferral!;
+    expect(foundOn).toBe("2026-10-30");
+    expect(defectFoundOn({ ...report, deferral: older })).toBe(
+      localDate(REPORTED),
+    );
+    expect(defectFoundOn({ ...report, deferral: { ...older, foundOn } })).toBe(
+      "2026-10-30",
+    );
+  });
+});
+
 describe("resolving a discrepancy", () => {
   const uuid = "demo-report";
   it("records the trimmed repair, the user and the time without mutating input", () => {
@@ -256,6 +318,7 @@ describe("the change-log entry", () => {
     const log = s.audit.length;
     const command = {
       uuid,
+      foundOn: FOUND_ON,
       deferredOn: localDate(),
       deferral: mel("B"),
     };
@@ -313,6 +376,7 @@ describe("the change-log entry", () => {
     expect(() =>
       deferDiscrepancy(s, {
         uuid,
+        foundOn: FOUND_ON,
         deferredOn: localDate(),
         deferral: mel("B"),
       }),

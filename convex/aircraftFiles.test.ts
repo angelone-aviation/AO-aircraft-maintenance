@@ -144,7 +144,7 @@ it("keeps Form 337 copies on the aircraft for readers, with maintenance uploads 
       ...upload,
       bytes: new Uint8Array(7 * 1024 * 1024 + 1).buffer,
     }),
-  ).rejects.toThrow("7 MB");
+  ).rejects.toThrow("7 MiB");
   await tech.action(api.aircraftFiles.upload, upload);
   // A foreign program's copy never reaches this program's readers.
   await t.run(async (ctx) =>

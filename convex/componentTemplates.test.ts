@@ -7,11 +7,12 @@
  *   (fixture).
  */
 import { convexTest } from "convex-test";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
+import { TEMPLATE_UNREADABLE } from "./componentTemplates";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -124,12 +125,15 @@ it("audits the stored and saved versions, and shows every refusal with its messa
   expect(saves.map((e) => JSON.parse(e.after!).version)).toEqual([1, 2]);
   const shown = (message: string) => ({ name: "ConvexError", data: message });
   await expect(save(record)).rejects.toMatchObject(shown(STALE_RECORD_MESSAGE));
-  await expect(
-    client.mutation(api.componentTemplates.save, {
-      programUuid: "demo-program",
-      payload: "{",
-    }),
-  ).rejects.toMatchObject({ name: "ConvexError" });
+  // Finding E-16: a malformed payload gets the safe message, never the
+  // parser's own text.
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  for (const fn of [api.componentTemplates.save, api.componentTemplates.apply])
+    await expect(
+      client.mutation(fn, { programUuid: "demo-program", payload: "{" }),
+    ).rejects.toMatchObject(shown(TEMPLATE_UNREADABLE));
+  expect(log).toHaveBeenCalledTimes(2);
+  log.mockRestore();
   await expect(
     client.mutation(api.componentTemplates.apply, {
       programUuid: "demo-program",

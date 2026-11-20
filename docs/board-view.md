@@ -8,7 +8,7 @@ A board member is a user whose only read access in the active Flight Program com
 
 Every new Flight Program gets a **Board (read-only)** default group with its other default groups. A program created before the group existed gets it when a system administrator runs the default-group backfill (`defaultGroups:initialize`), which adds only the groups a program lacks.
 
-Board members land on the board view at `/board` and see nothing else: every route shows it, the navigation holds only **Board view**, and there are no alerts, settings or flight tools. Flight Program administrators and system administrators also open **Board view** from the navigation; they keep their own workspace around it.
+Board members land on the board view at `/board` and see nothing else: every route shows it, the navigation holds only **Board view**, and there are no alerts, settings or flight tools. Their **All sections** sheet (the More button on phones) says so in one line, beside **Sign out**: the sun and moon button at the top switches the theme, and their administrators change their name, email, password or access. Owners get the same line. Flight Program administrators and system administrators also open **Board view** from the navigation; they keep their own workspace around it.
 
 ## What the board sees
 
@@ -16,7 +16,7 @@ The server sends board members a whitelist built in `boardSnapshot` (`src/domain
 
 - aircraft identity and counters, and what decides their status: unarchived inspections, installed components with their requirements, ADs with their due limits and compliance dates and counters, open discrepancies with their grounding flag and deferral type, category and expiry;
 - completed work orders as number, dates and scope line;
-- cost **totals** per aircraft (this quarter, this year, the year's budget), never cost records: no rates, labor lines, part prices, vendors or invoices;
+- cost **totals** per aircraft (this quarter, this year, the year's budget), never cost records: no rates, labor lines, part prices, vendors or invoices. "This quarter" and "this year" are taken from the date in the records time zone (`RECORDS_TIME_ZONE`, US Eastern by default), so they turn over at the program's midnight, not the server's UTC one;
 - the time of the newest off-site backup;
 - the member's own record and groups.
 

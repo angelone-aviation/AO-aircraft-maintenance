@@ -29,6 +29,21 @@ import type { ManagedRecord } from "./schemas";
 const SECONDS_PER_HOUR = 3600;
 
 /**
+ * An inspection names a component that is not on its aircraft, which valid
+ * records never do (its inspections move with a component). Callers that
+ * can say which inspection to fix catch it and word it for the user.
+ *
+ * @param inspection - The inspection whose component is missing.
+ */
+export class MissingInspectionComponent extends Rejection {
+  readonly inspection: Inspection;
+  constructor(inspection: Inspection) {
+    super("Inspection component not found.");
+    this.inspection = inspection;
+  }
+}
+
+/**
  * The usage an inspection is measured against: the aircraft's, or for a
  * component inspection, the component's time and cycles since new.
  *
@@ -42,9 +57,9 @@ const SECONDS_PER_HOUR = 3600;
  *   either the inspection is the aircraft's and has no hours limit, or its
  *   date, cycle or landing limit already makes it overdue: a reached limit
  *   decides before one that cannot be judged.
- * @throws {Rejection} "Inspection component not found." when the component
- *   is not on this aircraft; otherwise as {@link componentAircraftSeconds}
- *   and {@link componentTotals}.
+ * @throws {MissingInspectionComponent} "Inspection component not found."
+ *   when the component is not on this aircraft; otherwise as
+ *   {@link componentAircraftSeconds} and {@link componentTotals}.
  */
 export function inspectionCounters(
   i: Inspection,
@@ -117,7 +132,7 @@ function findInspectionComponent(
       r.uuid === i.componentUuid &&
       r.aircraftUuid === a.uuid,
   );
-  if (!c) throw new Rejection("Inspection component not found.");
+  if (!c) throw new MissingInspectionComponent(i);
   return c;
 }
 

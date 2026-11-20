@@ -25,8 +25,9 @@ type Totals = Parameters<typeof usageOnBasis>[1] & {
 };
 
 /**
- * The due-soon warnings a new requirement starts with. A stored requirement
- * without a landing warning warns at this one.
+ * The due-soon warnings every new requirement starts with, from the
+ * Components form or a template. A stored requirement without a landing
+ * warning warns at this one.
  */
 export const REQUIREMENT_WARNING_DEFAULTS = {
   warningSeconds: 25 * SECONDS_PER_HOUR,

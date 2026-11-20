@@ -23,7 +23,7 @@ Maintenance records must survive for the life of the aircraft (14 CFR 91.417(b)(
 - A GitHub Actions workflow on a nightly schedule runs `npx convex export --include-file-storage` with a production deploy key scoped to backups, encrypts the ZIP with `age` to a public key, and uploads it to R2. The job runs on GitHub's scheduler, not inside the app: Convex functions cannot run the export themselves.
 - **Encryption**: archives are encrypted before upload. The private key is held by the technical owner in a password manager, plus a sealed copy held by the organization (ADR-0010; originally "two people … plus a sealed paper copy"). Losing every copy of the key makes every archive unreadable, so escrow is checked at each rehearsal.
 - **Tamper resistance**: R2 bucket lock rules stop deletion or overwrite of `daily/` objects for 90 days and of `monthly/` and `env/` objects indefinitely. The CI token can write but cannot shorten retention, so a stolen CI token cannot erase history.
-- **Freshness alarm**: on success the job records the snapshot time in the app; the daily alert digest warns administrators when the newest off-site copy is older than 36 hours, and a failed workflow run emails the technical owner.
+- **Freshness alarm**: on success the job records the snapshot time in the app; the daily alert digest warns administrators when the newest off-site copy is older than 26 hours (36 until 2026-11-19, see Status), and a failed workflow run emails the technical owner.
 
 ## Restore
 
@@ -46,3 +46,4 @@ Maintenance records must survive for the life of the aircraft (14 CFR 91.417(b)(
 ## Status
 
 - 2026-11-03: the nightly job is built. `.github/workflows/backup.yml` runs `scripts/backup/nightly.sh` at 08:41 UTC with the secrets of the GitHub `backups` environment; the app records each copy and warns after 36 hours. The monthly copy is the first successful night of each month, so a missed 1st is covered the next night. Environment variables are uploaded only when they change; the job keeps their fingerprint in an unlocked `state/` folder. It is not live until the bucket, lock rules, key pair and environment are set up by hand and the first restore rehearsal passes ([go-live checklist](../go-live-checklist.md#backup-setup-remaining), [runbook](../runbooks/backup-restore.md)).
+- 2026-11-19: the app warns after 26 hours instead of 36 (decision D10). The digest checks once a day at 13:00 UTC, so the 36-hour limit first warned about 52 hours after the last good copy; 26 hours reports one missed night at the next day's digest ([runbook](../runbooks/backup-restore.md#who-is-told-when-it-fails)).

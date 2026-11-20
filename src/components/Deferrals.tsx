@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
 import {
+  defectFoundOn,
   deferralDaysRemaining,
   deferralExpired,
   deferralInputSchema,
@@ -32,9 +33,9 @@ type DeferFormProps = { uuid: string; onDone: () => void };
 type Choice<T> = { value: T; onChange: (value: T) => void };
 
 /**
- * A deferred discrepancy's deferral: its basis, placard and who deferred it,
- * and while the discrepancy is open, its expiry. An expired deferral grounds
- * the aircraft.
+ * A deferred discrepancy's deferral: its basis, placard, the day the defect
+ * was found and who deferred it, and while the discrepancy is open, its
+ * expiry. An expired deferral grounds the aircraft.
  *
  * @param props.report - A discrepancy that carries a deferral.
  */
@@ -54,7 +55,8 @@ export function DeferralStatus({ report }: { report: Discrepancy }) {
       <p className="muted">{deferralNote(d, today, open)}</p>
       <p>Placard: {d.placard}</p>
       <small>
-        Deferred by {d.deferredByName} on {d.deferredOn}
+        Found {defectFoundOn(report)} · deferred by {d.deferredByName} on{" "}
+        {d.deferredOn}
       </small>
     </div>
   );
@@ -62,17 +64,19 @@ export function DeferralStatus({ report }: { report: Discrepancy }) {
 
 /**
  * Defers an open discrepancy under an MEL item or 14 CFR 91.213(d), recorded
- * with the user's name and today's date. Needs a connection.
+ * with the day the defect was found (the report's date unless changed), the
+ * user's name and today's date. Needs a connection.
  *
- * @param props.uuid - The discrepancy to defer.
+ * @param props.uuid - The discrepancy to defer, in the workspace snapshot.
  * @param props.onDone - Called once the deferral is saved.
  * @returns A form that shows the first deferralInputSchema issue (such as
  *   "Enter the placard text.") or the server's refusal instead of saving.
  */
 export function DeferDiscrepancyForm({ uuid, onDone }: DeferFormProps) {
-  const { backend, online, connected } = useWorkspace();
+  const { backend, online, connected, snapshot } = useWorkspace();
   const [type, setType] = useState<DeferralBasis>("mel");
   const [category, setCategory] = useState<MelCategory>("B");
+  const report = snapshot?.discrepancies.find((d) => d.uuid === uuid);
   return (
     <AsyncForm
       submitLabel="Record deferral"
@@ -81,6 +85,7 @@ export function DeferDiscrepancyForm({ uuid, onDone }: DeferFormProps) {
         const deferral = parseDeferral(data, type, category);
         await backend!.deferDiscrepancy({
           uuid,
+          foundOn: value(data, "foundOn"),
           deferredOn: localDate(),
           deferral,
         });
@@ -88,19 +93,13 @@ export function DeferDiscrepancyForm({ uuid, onDone }: DeferFormProps) {
       }}
     >
       <BasisSelect value={type} onChange={setType} />
+      <FoundOnField reported={report && defectFoundOn(report)} />
       {type === "mel" ? (
         <MelFields value={category} onChange={setCategory} />
       ) : (
         <NotHazardCheck />
       )}
-      <Field label="Placard text">
-        <textarea
-          name="placard"
-          rows={2}
-          maxLength={PLACARD_MAX_LENGTH}
-          required
-        />
-      </Field>
+      <PlacardField />
       <p className="muted">
         The deferral is recorded with your name and today&apos;s date. Resolving
         the discrepancy ends the deferral.
@@ -119,6 +118,38 @@ function BasisSelect({ value, onChange }: Choice<DeferralBasis>) {
         <option value="mel">Minimum Equipment List (MEL) item</option>
         <option value="91.213d">14 CFR 91.213(d) inoperative equipment</option>
       </select>
+    </Field>
+  );
+}
+
+// A defect cannot be found after it was reported, so the report's date is
+// both the default and the latest choice; the server checks it again.
+function FoundOnField({ reported }: { reported?: string }) {
+  return (
+    <Field
+      label="Date the defect was found"
+      hint="An MEL repair interval counts from this day."
+    >
+      <input
+        type="date"
+        name="foundOn"
+        required
+        max={reported}
+        defaultValue={reported}
+      />
+    </Field>
+  );
+}
+
+function PlacardField() {
+  return (
+    <Field label="Placard text">
+      <textarea
+        name="placard"
+        rows={2}
+        maxLength={PLACARD_MAX_LENGTH}
+        required
+      />
     </Field>
   );
 }
@@ -198,7 +229,7 @@ function MelFields({ value: category, onChange }: Choice<MelCategory>) {
 
 function categoryHint(category: MelCategory) {
   if (category === "A") return "Enter the interval stated in the MEL item.";
-  return `${MEL_CATEGORY_DAYS[category]} calendar days after today.`;
+  return `${MEL_CATEGORY_DAYS[category]} calendar days after the day the defect was found.`;
 }
 
 function NotHazardCheck() {

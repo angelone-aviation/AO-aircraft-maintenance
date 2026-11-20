@@ -66,7 +66,7 @@ describe("form readers", () => {
     expect(secs(form({ h: "12.5" }), "h")).toBe(45_000);
     expect(secs(form({ h: "" }), "h")).toBeUndefined();
     expect(() => secs(form({ h: "1.25" }), "h")).toThrow(
-      "Use positive hours with at most one decimal place.",
+      "Use hours of 0 or more, with at most one decimal place.",
     );
   });
 

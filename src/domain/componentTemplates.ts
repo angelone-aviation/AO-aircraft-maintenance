@@ -116,13 +116,13 @@ export function validateRows(rows: ComponentTemplate["rows"]) {
  *
  * @param csv - The file's text; a leading byte-order mark is ignored.
  * @returns The rows, checked by {@link validateRows}.
- * @throws {Rejection} "CSV must be under 2 MB.", "Use columns: …", "CSV row
+ * @throws {Rejection} "CSV must be under 2 MiB.", "Use columns: …", "CSV row
  *   <n>: <reason>", "Use 1–500 component rows." or a {@link validateRows}
  *   message.
  */
 export function parseComponentTemplateCsv(csv: string) {
   if (new TextEncoder().encode(csv).length > CSV_MAX_BYTES)
-    throw new Rejection("CSV must be under 2 MB.");
+    throw new Rejection("CSV must be under 2 MiB.");
   const [header, ...data] = readCsvRows(csv.replace(/^﻿/, ""));
   const headers = readTemplateHeaders(header?.cells ?? []);
   const generated = new Map<string, number>();
@@ -152,7 +152,7 @@ export function parseComponentTemplateCsv(csv: string) {
  * @returns The template as saved, with its version incremented.
  * @throws {z.ZodError} On an invalid payload.
  * @throws {Rejection} "Maintenance permission is required.", "Template
- *   belongs to another program.", "Select a Flight Program." or a
+ *   belongs to another Flight Program.", "Select a Flight Program." or a
  *   {@link validateRows} message; a StaleRecordRejection for a stale version.
  */
 export function saveComponentTemplate(s: Snapshot, raw: unknown) {
@@ -165,7 +165,7 @@ export function saveComponentTemplate(s: Snapshot, raw: unknown) {
     (old && !ownsActive(s, old.programUuid)) ||
     (input.programUuid && !ownsActive(s, input.programUuid))
   )
-    throw new Rejection("Template belongs to another program.");
+    throw new Rejection("Template belongs to another Flight Program.");
   if ((old?.version ?? 0) !== input.version)
     throw new StaleRecordRejection("componentTemplate", old?.version ?? 0);
   const programUuid = activeProgram(s);

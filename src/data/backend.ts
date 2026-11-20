@@ -31,6 +31,7 @@ import type {
 import type { ADCommand } from "../domain/airworthiness";
 import type { AuditPage, AuditPageRequest } from "../domain/auditHistory";
 import type { AuditSummaryResult, SummaryPeriod } from "../domain/auditSummary";
+import type { CertificateApproval } from "../domain/certificateApproval";
 import type {
   Certification,
   CertificationFile,
@@ -563,8 +564,6 @@ export interface Backend {
    */
   removeIdentity(userId: string, id: string): Promise<unknown>;
 
-  /** Saves the signed-in user's certificate number and type for logbooks. */
-  saveLicense(licenseNumber: string, certificateType: string): Promise<unknown>;
   /** Saves the signed-in user's logbook phrases, in the order offered. */
   saveLogbookPhrases(phrases: string[]): Promise<unknown>;
   /**
@@ -574,11 +573,30 @@ export interface Backend {
   saveReleaseStatements(statements: ReleaseStatement[]): Promise<unknown>;
   /**
    * Replaces a member's certifications and the license fields derived from
-   * them. The account owner or an administrator.
+   * them. The account owner or an administrator. A new or changed
+   * certificate waits for approval; each change is logged with before and
+   * after.
    */
   saveCertifications(
     userId: string,
     certifications: Certification[],
+  ): Promise<unknown>;
+  /**
+   * The certificates waiting for the signed-in user to approve them: any
+   * member's for a system administrator, the active program's members' for
+   * its Flight Program administrators, never their own.
+   */
+  certificatesAwaitingApproval(): Promise<CertificateApproval[]>;
+  /**
+   * Approves one of a member's pending certificates exactly as reviewed, so
+   * it prints on entries and counts for the inspection signoff; logs the
+   * approval with before and after.
+   *
+   * @param certificate - The certificate as the approver saw it.
+   */
+  approveCertificate(
+    userId: string,
+    certificate: Certification,
   ): Promise<unknown>;
   /** Lists the license copies filed for a member, without their files. */
   certificationFiles(userId: string): Promise<CertificationFile[]>;
@@ -1053,11 +1071,6 @@ function bindAccountCalls(client: ConvexReactClient) {
 
 function bindCredentialCalls(client: ConvexReactClient) {
   return {
-    saveLicense: (licenseNumber, certificateType) =>
-      client.mutation(api.admin.saveLicense, {
-        licenseNumber,
-        certificateType,
-      }),
     saveLogbookPhrases: (phrases) =>
       client.mutation(api.admin.saveLogbookPhrases, { phrases }),
     saveReleaseStatements: (statements) =>
@@ -1067,6 +1080,16 @@ function bindCredentialCalls(client: ConvexReactClient) {
         userId: userId as Id<"users">,
         payload: JSON.stringify(certifications),
       }),
+    certificatesAwaitingApproval: () =>
+      client.query(api.certifications.awaitingApproval, inProgram({})),
+    approveCertificate: (userId, certificate) =>
+      client.mutation(
+        api.certifications.approve,
+        inProgram({
+          userId: userId as Id<"users">,
+          certificate: JSON.stringify(certificate),
+        }),
+      ),
     certificationFiles: (userId) =>
       client.query(api.certifications.list, { userId: userId as Id<"users"> }),
     uploadCertification: async (userId, kind, file) =>

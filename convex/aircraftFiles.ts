@@ -193,9 +193,9 @@ export const finishUpload = internalMutation({
  * @param linkedUuid - For a photo, the linked record's uuid.
  * @param name - The file name; its extension must match `type`.
  * @param type - PDF, JPEG, PNG or WebP.
- * @param bytes - The file, at most 7 MB.
+ * @param bytes - The file, at most 7 MiB.
  * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file.",
- *   "Attachments must be between 1 byte and 7 MB." or, for a photo, the HEIC
+ *   "Attachments must be between 1 byte and 7 MiB." or, for a photo, the HEIC
  *   refusal, checked first; then "This file's contents do not match its
  *   type. Choose a PDF, JPEG, PNG or WebP file." when the first bytes are
  *   not the declared type's; the {@link finishUpload} refusals, after which
@@ -239,7 +239,8 @@ export const upload = action({
  * @param id - The file.
  * @param reason - Why it is archived; trimmed, 1 to 500 characters.
  * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} "Document not found.", checked first; the
+ * @throws {ConvexError} As `checkContext`, first; "Document not found.",
+ *   also for a copy on an aircraft the caller cannot read; the
  *   {@link checkUpload} refusals; "This copy is already archived."; "Enter a
  *   reason for archiving this copy."; "Keep the reason for archiving to 500
  *   characters."
@@ -251,15 +252,23 @@ export const archive = mutation({
     programUuid: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const state = await checkContext(ctx, args.programUuid);
     const file = await ctx.db.get(args.id);
-    if (!file) throw new ConvexError("Document not found.");
-    const owner = await authorizeFileWriter(ctx, {
-      aircraftUuid: file.aircraftUuid,
-      programUuid: args.programUuid,
-      category: file.category,
-      linkedKind: file.linkedKind,
-      linkedUuid: file.linkedUuid,
-    });
+    // One refusal for a copy that is gone or on an aircraft out of the
+    // caller's sight, so an id never tells that it exists (review T4).
+    if (!file || !can(state, file.aircraftUuid, "read"))
+      throw new ConvexError("Document not found.");
+    const owner = await authorizeFileWriter(
+      ctx,
+      {
+        aircraftUuid: file.aircraftUuid,
+        programUuid: args.programUuid,
+        category: file.category,
+        linkedKind: file.linkedKind,
+        linkedUuid: file.linkedUuid,
+      },
+      state,
+    );
     const archived = exposeRejections(() =>
       aircraftFileArchive(file, owner.user, args.reason, Date.now()),
     );
@@ -289,8 +298,12 @@ export const archive = mutation({
   },
 });
 
-async function authorizeFileWriter(ctx: QueryCtx | MutationCtx, args: Target) {
-  const state = await checkContext(ctx, args.programUuid);
+async function authorizeFileWriter(
+  ctx: QueryCtx | MutationCtx,
+  args: Target,
+  known?: Snapshot,
+) {
+  const state = known ?? (await checkContext(ctx, args.programUuid));
   exposeRejections(() => {
     assertAircraftFileLink(args.category, args);
     assertAircraftFileWriter(state, args.aircraftUuid, args.linkedKind);

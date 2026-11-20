@@ -1,11 +1,15 @@
 /**
- * Responsibility: Files attached to inventory items: the attachment record,
- *   the file rules (name and size), who may manage an item's attachments,
- *   and the first-bytes check that uploads share.
+ * Responsibility: Files attached to inventory items and purchase orders: the
+ *   attachment record, the file rules (name and size), who may manage an
+ *   item's attachments, the rows a purchase-order upload logs, and the
+ *   first-bytes check that uploads share.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/model.ts (types), programs.ts, rejection.ts.
+ * Dependencies: src/domain/model.ts, changeLog.ts, purchaseOrders.ts (types),
+ *   programs.ts, rejection.ts.
  */
 import type { Snapshot } from "./model";
+import type { AuditChange } from "./changeLog";
+import type { PurchaseOrder } from "./purchaseOrders";
 import { ownsActive, programPermission, recordProgram } from "./programs";
 import { Rejection } from "./rejection";
 
@@ -85,8 +89,8 @@ export const FILE_SIGNATURE_LENGTH = Math.max(
  * Attachment bytes travel as a Convex action argument (`v.bytes()`), not
  * through an upload URL, so a file must fit within Convex's function-argument
  * size limit with room for encoding and the other arguments. Inventory, PO,
- * work-order and job-card attachments share this limit and the docs state it
- * as 7 MB (it is 7 MiB). Larger files need the upload-ticket flow manuals use.
+ * work-order and job-card attachments share this limit, 7 MiB. Larger files
+ * need the upload-ticket flow manuals use.
  */
 export const MAX_ACTION_FILE_BYTES = 7 * 1024 * 1024;
 
@@ -109,7 +113,7 @@ export interface InventoryAttachment {
  * @param type - A PDF, JPEG, PNG or WebP MIME type.
  * @param size - The size in bytes, 1 to {@link MAX_ACTION_FILE_BYTES}.
  * @throws {Rejection} "Choose a PDF, JPEG, PNG or WebP file." for a bad name
- *   or type; "Attachments must be between 1 byte and 7 MB." for a bad size.
+ *   or type; "Attachments must be between 1 byte and 7 MiB." for a bad size.
  */
 export function validateInventoryFile(
   name: string,
@@ -123,7 +127,7 @@ export function validateInventoryFile(
   )
     throw new Rejection("Choose a PDF, JPEG, PNG or WebP file.");
   if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_ACTION_FILE_BYTES)
-    throw new Rejection("Attachments must be between 1 byte and 7 MB.");
+    throw new Rejection("Attachments must be between 1 byte and 7 MiB.");
 }
 
 /**
@@ -214,4 +218,55 @@ export function inventoryAttachmentAccess(s: Snapshot, stockUuid: string) {
       "Inventory administrator access to this item is required.",
     );
   return stock;
+}
+
+type Receipt = PurchaseOrder["receipts"][number];
+
+/**
+ * The items a purchase-order receipt brought in, each once: the records a
+ * file attached to that receipt is also filed on.
+ *
+ * @param receipt - The receipt, if the file belongs to one.
+ * @returns Item uuids in receipt order; none without a receipt.
+ */
+export function receiptItemUuids(receipt?: Pick<Receipt, "lines">): string[] {
+  return [...new Set(receipt?.lines.flatMap((l) => l.itemUuids) ?? [])];
+}
+
+/**
+ * The change-log rows one purchase-order upload writes (T3): the order's,
+ * then one for each item a receipt's file is also filed on, as uploading to
+ * the item itself logs it.
+ *
+ * @param po - The order.
+ * @param receipt - The receipt the file belongs to, if any.
+ * @param file - The file's name and size.
+ * @returns A "purchaseOrder.attachment" row, then an "inventory.attachment"
+ *   row per {@link receiptItemUuids} item, all tagged with the order's
+ *   program.
+ */
+export function poAttachmentChanges(
+  po: Pick<PurchaseOrder, "uuid" | "number" | "programUuid">,
+  receipt: Pick<Receipt, "uuid" | "lines"> | undefined,
+  file: { name: string; size: number },
+): AuditChange[] {
+  const { programUuid } = po;
+  const stored = { name: file.name, size: file.size };
+  const order: AuditChange = {
+    action: "purchaseOrder.attachment",
+    entityUuid: po.uuid,
+    programUuid,
+    reason: receipt
+      ? "Receipt attachment uploaded"
+      : "Purchase order attachment uploaded",
+    after: receipt ? { ...stored, receiptUuid: receipt.uuid } : stored,
+  };
+  const items = receiptItemUuids(receipt).map((stockUuid) => ({
+    action: "inventory.attachment",
+    entityUuid: stockUuid,
+    programUuid,
+    reason: `Receipt attachment from ${po.number}`,
+    after: stored,
+  }));
+  return [order, ...items];
 }

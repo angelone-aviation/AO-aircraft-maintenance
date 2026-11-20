@@ -13,6 +13,7 @@
  */
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
+import { IMMEDIATE_CAP_KEY, immediateShareKey } from "./urgentAlerts";
 import {
   DEMO_PROGRAM,
   OTHER_PROGRAM,
@@ -128,13 +129,20 @@ it("claims nothing, and spends none of the day's emails, for alerts already sent
   ).toEqual({ claimed: ["k1", "k2"], capped: false });
   const spent = () =>
     t.run(async (ctx) =>
-      (await ctx.db.query("rateLimits").collect()).map((r) => r.count),
+      (await ctx.db.query("rateLimits").collect())
+        .map((r) => `${r.key} ${r.count}`)
+        .sort(),
     );
-  expect(await spent()).toEqual([1]);
+  // One of the deployment's total and one of the program's share.
+  const once = [
+    `${IMMEDIATE_CAP_KEY} 1`,
+    `${immediateShareKey(DEMO_PROGRAM)} 1`,
+  ];
+  expect(await spent()).toEqual(once);
   expect(
     await t.mutation(internal.urgentAlerts.claimDeliveries, claim),
   ).toEqual({ claimed: [], capped: false });
-  expect(await spent()).toEqual([1]);
+  expect(await spent()).toEqual(once);
 });
 
 async function seedFleet(): Promise<AlertWorld> {

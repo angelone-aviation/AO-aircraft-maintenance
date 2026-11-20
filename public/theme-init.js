@@ -5,8 +5,11 @@
  * Dependencies: none.
  *
  * A static file, not an inline script, so the CSP's `script-src 'self'` allows
- * it. It mirrors storedTheme() in src/components/design.tsx, whose initTheme()
- * takes over once the app has loaded, and readStored() in
+ * it. It mirrors storedChoice() and resolveTheme() in
+ * src/components/design.tsx: "light" and "dark" are fixed, while "system"
+ * (Match this device), nothing saved and blocked storage take the device's
+ * setting. initTheme() there takes over once the app has loaded and follows
+ * the device as it changes. Text size mirrors readStored() in
  * src/components/LargeText.tsx.
  */
 (function () {
@@ -15,7 +18,7 @@
     var saved = localStorage.getItem("angelone-theme");
     if (saved === "dark" || saved === "light") theme = saved;
   } catch {
-    // Storage blocked: fall through to the system preference.
+    // Storage blocked: fall through to the device's setting.
   }
   if (!theme)
     try {

@@ -97,7 +97,7 @@ const ROOM_NOUNS: Record<AircraftFileCategory, string> = {
 
 /**
  * Checks an aircraft document before upload: the same types (PDF, JPEG, PNG,
- * WebP) and 7 MB limit as other record attachments.
+ * WebP) and 7 MiB limit as other record attachments.
  *
  * @throws {Rejection} As {@link validateInventoryFile}.
  */

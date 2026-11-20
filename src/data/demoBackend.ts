@@ -12,6 +12,8 @@ import {
 import {
   ADD_EXISTING_RESULT,
   EMAIL_UNAVAILABLE,
+  assertAccountAdministrator,
+  assertKnownGroups,
   assertAccessGroups,
   assertGrantsRead,
   assertProgramGroups,
@@ -27,11 +29,21 @@ import { assertAttachmentRoom, withNewEvidence } from "../domain/attachments";
 import { demoAircraftFiles, readDataUrl } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
 import {
+  certificationSchema,
   certificationsSchema,
   memberLicense,
   validateCertificationFile,
   LICENSE_COPY_TYPES,
+  type Certification,
 } from "../domain/certifications";
+import {
+  approveCertification,
+  CERTIFICATE_APPROVERS_ONLY,
+  certificatesAwaitingApproval,
+  certificationChanges,
+  fileCertifications,
+  mayApproveCertificates,
+} from "../domain/certificateApproval";
 import {
   parseAddressSave,
   saveAddress,
@@ -52,7 +64,8 @@ import {
   poAttachmentRemovable,
 } from "../domain/purchaseOrders";
 import { applyCostCommand } from "../domain/costs";
-import { applyFaaCommand, emptyMonitor, faaCommandSchema } from "../domain/faa";
+import { faaCommandSchema, runFaaCommand } from "../domain/faa";
+import { selectProgram } from "../domain/programSelection";
 import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
@@ -66,11 +79,12 @@ import {
   validateInventoryFile,
   assertFileContents,
   ATTACHMENT_FILE_TYPES,
+  poAttachmentChanges,
+  receiptItemUuids,
 } from "../domain/inventoryAttachments";
 import { releaseStatementsSchema } from "../domain/releaseStatements";
 import { logbookPhrasesSchema } from "../domain/logbookWording";
 import { saveDiscrepancyParts } from "../domain/requiredParts";
-import { licenseSchema } from "../domain/logbook";
 import { importTaskCsv } from "../domain/taskCsv";
 import { activateTemplate } from "../domain/activateTemplate";
 import { saveInspectionTemplates } from "../domain/inspectionTemplates";
@@ -99,7 +113,6 @@ import { saveFlightPlan } from "../domain/flightPlans";
 import { transferProgram } from "../domain/programTransfers";
 import {
   activeProgram,
-  assertProgramSelectable,
   scopedSnapshot,
   auditVisible,
   programPermission,
@@ -119,7 +132,7 @@ import {
 import { applyManagement } from "../domain/management";
 import { applyExpiringCommand } from "../domain/expiringItems";
 import { ConvexError } from "convex/values";
-import { StaleRecordRejection } from "../domain/rejection";
+import { Rejection, StaleRecordRejection } from "../domain/rejection";
 import type { AuditEntry, Discrepancy, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
 import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
@@ -197,6 +210,63 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       after: after === undefined ? undefined : JSON.stringify(after),
     };
     s.audit.unshift(entry);
+  }
+  // Files certifications as the server's recordCertifications does: a new
+  // or changed one waits for approval; each change is logged.
+  function recordCertifications(
+    s: Snapshot,
+    userId: string,
+    submitted: Certification[],
+  ) {
+    const before = s.members.find((m) => m.id === userId)?.certifications;
+    const certifications = fileCertifications(before, submitted);
+    storeCertifications(s, userId, certifications);
+    for (const change of certificationChanges(before, certifications))
+      audit(
+        s,
+        change.action,
+        userId,
+        undefined,
+        undefined,
+        change.before,
+        change.after,
+      );
+  }
+  function storeCertifications(
+    s: Snapshot,
+    userId: string,
+    certifications: Certification[],
+  ) {
+    const fields = { certifications, ...memberLicense({ certifications }) };
+    s.members = s.members.map((m) =>
+      m.id === userId ? { ...m, ...fields } : m,
+    );
+    if (s.user.id === userId) s.user = { ...s.user, ...fields };
+  }
+  // The server's approve mutation, on the demo's records.
+  function approveDemoCertificate(
+    s: Snapshot,
+    userId: string,
+    reviewed: Certification,
+  ) {
+    const holder = s.members.find((m) => m.id === userId);
+    if (!holder) throw new Error("User not found.");
+    if (!mayApproveCertificates(s, holder))
+      throw new Rejection(CERTIFICATE_APPROVERS_ONLY);
+    const before = holder.certifications ?? [];
+    const certifications = approveCertification(before, reviewed);
+    storeCertifications(s, userId, certifications);
+    const ofKind = (list: Certification[]) =>
+      list.find((c) => c.kind === reviewed.kind);
+    audit(
+      s,
+      "user.certification_approved",
+      userId,
+      undefined,
+      undefined,
+      ofKind(before),
+      ofKind(certifications),
+    );
   }
   // Rows about a program's groups, memberships and addresses name the
   // program, as the server's do: the history filter reads that tag.
@@ -348,18 +418,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             url,
           },
         ];
-        s.taskCards = s.taskCards!.map((card) =>
-          card === t ? withNewEvidence(t, now) : card,
-        );
-        audit(
-          s,
-          "taskCard.evidence",
-          t.uuid,
-          t.aircraftUuid,
-          undefined,
-          undefined,
-          { name: file.name, category },
-        );
+        const next = withNewEvidence(t, now);
+        s.taskCards = s.taskCards!.map((card) => (card === t ? next : card));
+        audit(s, "taskCard.evidence", t.uuid, t.aircraftUuid, undefined, t, {
+          ...next,
+          evidenceName: file.name,
+          category,
+        });
       });
     },
     removeTaskEvidence: (id) =>
@@ -557,21 +622,18 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     faaCommand: (command) =>
       modify((s) => {
         const cmd = faaCommandSchema.parse(command);
-        if (!can(s, cmd.aircraftUuid, "maintenance"))
-          throw Error("Permission denied.");
+        const { monitor, entry } = runFaaCommand(s, cmd, Date.now());
         if (cmd.kind === "check")
           throw Error(
             "Live FAA checks require a connected backend; demo mode cannot check the FAA.",
           );
-        const m =
-          s.faaMonitors?.find((x) => x.aircraftUuid === cmd.aircraftUuid) ??
-          emptyMonitor(cmd.aircraftUuid);
         s.faaMonitors = [
           ...(s.faaMonitors ?? []).filter(
-            (x) => x.aircraftUuid !== m.aircraftUuid,
+            (x) => x.aircraftUuid !== monitor.aircraftUuid,
           ),
-          applyFaaCommand(m, cmd, Date.now()),
+          monitor,
         ];
+        s.audit.unshift(entry);
       }),
     saveAD: (command) =>
       modify((s) => {
@@ -701,13 +763,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       );
       const url = await readDataUrl(file);
       await modify((s) => {
+        if (!programPermission(s, "admin"))
+          throw Error("Inventory administrator access required.");
         const po = s.purchaseOrders?.find((p) => p.uuid === poUuid);
-        if (
-          !po ||
-          !programPermission(s, "admin") ||
-          po.programUuid !== activeProgram(s)
-        )
-          throw Error("PO access denied.");
+        if (!po || po.programUuid !== activeProgram(s))
+          throw Error("PO not found.");
         const receipt = po.receipts.find((r) => r.uuid === receiptUuid);
         if (receiptUuid && !receipt) throw Error("Receipt not found.");
         assertRoomAmong(s.purchaseOrderFiles, (f) => f.poUuid === po.uuid);
@@ -722,13 +782,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           uploadedAt: Date.now(),
         };
         s.purchaseOrderFiles = [...(s.purchaseOrderFiles ?? []), f];
-        for (const stockUuid of new Set(
-          receipt?.lines.flatMap((l) => l.itemUuids) ?? [],
-        ))
+        for (const stockUuid of receiptItemUuids(receipt))
           s.inventoryAttachments = [
             ...(s.inventoryAttachments ?? []),
             { ...f, uuid: crypto.randomUUID(), stockUuid },
           ];
+        for (const change of poAttachmentChanges(po, receipt, file))
+          s.audit.unshift(auditEntry(s, change));
       });
     },
     purchaseOrder: (command) =>
@@ -750,8 +810,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     transferProgram: (input) => modify((s) => transferProgram(s, input)),
     selectProgram: (programUuid) =>
       modify((s) => {
-        assertProgramSelectable(s, programUuid);
-        s.user.activeProgramUuid = programUuid;
+        s.audit.unshift(selectProgram(s, programUuid));
       }),
     fleet: (command) =>
       modify((s) => {
@@ -966,17 +1025,15 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       ),
     archiveAircraftFile: (id, reason) =>
       demoAircraftFiles.archive(modify, audit, id, reason),
-    createUser: async (email, name, password) => {
+    createUser: async (rawEmail, rawName, password) => {
       const id = crypto.randomUUID();
       const { passwordProblem } = await import("../domain/passwordRules");
       await modify((s) => {
+        assertAccountAdministrator(s.user);
+        const { email, name } = normalizeAccount(rawEmail, rawName);
         const problem = passwordProblem(password, email);
         if (problem) throw new Error(problem);
-        if (
-          s.members.some(
-            (m) => m.email.toLowerCase() === email.trim().toLowerCase(),
-          )
-        )
+        if (s.members.some((m) => m.email.toLowerCase() === email))
           throw new Error(EMAIL_UNAVAILABLE);
         const user = {
           id,
@@ -1009,35 +1066,27 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         );
         audit(s, "user.logbook_phrases_updated", s.user.id);
       }),
-    saveLicense: (licenseNumber, certificateType) =>
-      modify((s) => {
-        const fields = licenseSchema.parse({ licenseNumber, certificateType });
-        s.user = { ...s.user, ...fields };
-        s.members = s.members.map((m) =>
-          m.id === s.user.id ? { ...m, ...fields } : m,
-        );
-        audit(
-          s,
-          "user.license_updated",
-          s.user.id,
-          undefined,
-          undefined,
-          undefined,
-          fields,
-        );
-      }),
     saveCertifications: (userId, rows) =>
       modify((s) => {
         if (userId !== s.user.id && !s.user.isAdmin)
           throw Error("Permission denied.");
-        const certifications = certificationsSchema.parse(rows),
-          fields = { certifications, ...memberLicense({ certifications }) };
-        s.members = s.members.map((m) =>
-          m.id === userId ? { ...m, ...fields } : m,
-        );
-        if (s.user.id === userId) s.user = { ...s.user, ...fields };
-        audit(s, "user.certifications_updated", userId);
+        recordCertifications(s, userId, certificationsSchema.parse(rows));
       }),
+    certificatesAwaitingApproval: async () => {
+      const current = workspace.getState();
+      const s =
+        (await local.readSnapshot(current.namespace + ":all")) ??
+        current.snapshot!;
+      return certificatesAwaitingApproval(s, s.members);
+    },
+    approveCertificate: (userId, certificate) =>
+      modify((s) =>
+        approveDemoCertificate(
+          s,
+          userId,
+          certificationSchema.parse(certificate),
+        ),
+      ),
     certificationFiles: async (userId) =>
       (workspace.getState().snapshot?.certificationFiles ?? []).filter(
         (f) => f.userId === userId,
@@ -1093,17 +1142,18 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           certificateType: previous?.certificateType,
         });
         if (!s.user.isAdmin) throw Error("Administrator permission required.");
-        if (input.certifications !== undefined) {
-          user.certifications = certificationsSchema.parse(
-            input.certifications,
-          );
-          Object.assign(user, memberLicense(user));
-        }
+        assertKnownGroups(s.groups, user.groupIds);
         if (user.id === s.user.id && (!user.isAdmin || !user.active))
           throw new Error("Keep the demo administrator active.");
         s.members = s.members.map((m) => (m.id === user.id ? user : m));
         if (user.id === s.user.id) s.user = user;
         audit(s, "user.permissions_changed", user.id);
+        if (input.certifications !== undefined)
+          recordCertifications(
+            s,
+            user.id,
+            certificationsSchema.parse(input.certifications),
+          );
       }),
     auditPage: async (request) => {
       const current = workspace.getState();

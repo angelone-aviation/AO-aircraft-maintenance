@@ -117,6 +117,15 @@ it("atomically persists file tasks to templates and inspections with server acce
   ).rejects.toThrow();
   state = await t.withIdentity(ids.reader).query(api.operations.snapshot);
   expect(state!.taskCards).toHaveLength(2);
+  // T3: one change-log row for each imported job card.
+  const rows = await t.run(async (ctx) =>
+    (await ctx.db.query("audit").collect()).filter(
+      (r) => r.action === "taskCard.created_from_csv",
+    ),
+  );
+  expect(rows.map((r) => r.entityUuid).sort()).toEqual(
+    state!.taskCards!.map((c) => c.uuid).sort(),
+  );
   expect(state!.taskCards![0]).toMatchObject({
     inspectionUuid: "demo-insp-1",
     itemCode: "A1",

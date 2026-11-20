@@ -141,11 +141,11 @@ it("accepts supported files and rejects empty, oversized or mismatched uploads",
     validateInventoryFile("test.png", "application/pdf", 10),
   ).toThrow("Choose");
   expect(() => validateInventoryFile("test.pdf", "application/pdf", 0)).toThrow(
-    "7 MB",
+    "7 MiB",
   );
   expect(() =>
     validateInventoryFile("test.pdf", "application/pdf", 7 * 1024 * 1024 + 1),
-  ).toThrow("7 MB");
+  ).toThrow("7 MiB");
 });
 it("caps attachments per item and removes them with their unshared blob", async () => {
   const { t, admin } = await fixture();

@@ -4,7 +4,7 @@
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./management, ./flights, ./flightChecklistLink,
  *   ./flightPlans, ./aircraftStatus, ./oilInventory, ./programs, ./rejection,
- *   ./changeLog, ./fieldDiff (sameValue, for a resent entry).
+ *   ./changeLog, ./fieldDiff (sameValue, for a resent entry), ./reportBacklog.
  *
  * The server and the demo adapter run this one sequence; each loads the state
  * it reads and stores the changes it returns.
@@ -33,6 +33,7 @@ import { programIds } from "./programs";
 import { Rejection } from "./rejection";
 import { auditEntry, type AuditChange } from "./changeLog";
 import { sameValue } from "./fieldDiff";
+import { passesReportLimit, REPORT_LIMIT_REFUSAL } from "./reportBacklog";
 
 /** A refused entry, with a message the Sync center shows as written. */
 export class FlightRejection extends Rejection {}
@@ -76,14 +77,15 @@ export interface SubmitOptions {
  * store. Resubmitting an entry (a retry after a lost reply) stores nothing.
  *
  * @param s - The aircraft; the flights, discrepancies, checklist and flight
- *   plan the entry refers to; the crew in `members`; and the aircraft's
- *   management, inspections, airworthiness and discrepancies for the gate.
+ *   plan the entry refers to; the crew in `members`; the aircraft's
+ *   management, inspections, airworthiness and discrepancies for the gate;
+ *   and, for an entry that files a report, its author's open reports.
  * @returns The entry's status, with the changes to store unless resubmitted.
  * @throws {Rejection} Every refusal a user can act on, so the server shows
  *   its reason in the Sync center: a FlightRejection for the crew, an unknown
- *   aircraft, a reused entry id, a bad flight link, the dispatch gate or the
- *   oil stock; a Rejection from the readings, checklist and flight plan
- *   checks.
+ *   aircraft, a reused entry id, a bad flight link, the author's open-report
+ *   limit, the dispatch gate or the oil stock; a Rejection from the
+ *   readings, checklist and flight plan checks.
  */
 export function submitOperation(
   s: Snapshot,
@@ -120,28 +122,17 @@ export function submitFlight(
   const aircraft = s.aircraft.find((a) => a.uuid === input.aircraftUuid);
   if (!aircraft) throw new FlightRejection("Aircraft not found.");
   validateEntry(s, input, aircraft);
-  const inFlight =
-    op.dispatchOverrideReason === undefined &&
-    groundedDuringFlight(s, aircraft.uuid, input.startTime, today);
-  const dispatchOverride = inFlight
-    ? undefined
-    : gateDispatch(s, op, aircraft, today, now);
-  const reviewReason = inFlight
-    ? GROUNDED_DURING_FLIGHT
-    : heldReason(aircraft, input, op.baseVersion);
-  const flight = flightRecord(op, aircraft, now, {
-    dispatchOverride,
-    reviewReason,
-  });
+  const outcome = flightOutcome(s, op, aircraft, { now, today });
+  const flight = flightRecord(op, aircraft, now, outcome);
   const stock = drawDownOil(s, input, now);
-  const report = fileFlightReport(op, aircraft, now);
+  const report = fileFlightReport(s, op, aircraft, now);
   return {
     status: flight.status,
     changes: {
       stock,
       flight,
       // A held flight changes no totals until an administrator accepts it.
-      aircraft: reviewReason ? undefined : applyFlight(aircraft, input),
+      aircraft: outcome.reviewReason ? undefined : applyFlight(aircraft, input),
       discrepancy: report,
       audit: listFlightAudit(op, flight, { stock, report }).map((change) =>
         auditEntry(s, change, now),
@@ -187,11 +178,13 @@ export function aircraftAfterPendingFlights(
 }
 
 /**
- * Submits a problem report, optionally linked to a flight.
+ * Submits a problem report, optionally linked to a flight. A resent report
+ * is never refused by the author's backlog limit.
  *
  * @returns As {@link submitOperation}; always `status: "accepted"`.
  * @throws {FlightRejection} "Entry ID already used." for another author's
- *   id; "Linked flight does not belong to this aircraft." for a bad link.
+ *   id; "Linked flight does not belong to this aircraft." for a bad link;
+ *   {@link REPORT_LIMIT_REFUSAL} past the author's open-report limit.
  */
 export function submitDiscrepancy(
   s: Snapshot,
@@ -204,6 +197,7 @@ export function submitDiscrepancy(
       status: "accepted",
     });
   assertLinkedFlight(s, op);
+  assertReportRoom(s, op.authorId, op.description);
   const report = reportRecord(op, now);
   return {
     status: "accepted",
@@ -384,13 +378,40 @@ function isStockRefusal(error: unknown): error is Error {
   );
 }
 
+// A flight its aircraft was grounded during is held, not refused (decision
+// D6); otherwise the dispatch gate decides, and a conflict with the counters
+// holds it.
+function flightOutcome(
+  s: Snapshot,
+  op: FlightOperation,
+  aircraft: Aircraft,
+  { now, today }: SubmitOptions,
+): Pick<Flight, "dispatchOverride" | "reviewReason"> {
+  const inFlight =
+    op.dispatchOverrideReason === undefined &&
+    groundedDuringFlight(s, aircraft.uuid, op.input.startTime, today);
+  if (inFlight)
+    return {
+      dispatchOverride: undefined,
+      reviewReason: GROUNDED_DURING_FLIGHT,
+    };
+  return {
+    dispatchOverride: gateDispatch(s, op, aircraft, today, now),
+    reviewReason: heldReason(aircraft, op.input, op.baseVersion),
+  };
+}
+
+// A flight's report counts against its author's limit like any other, so
+// the flight waits in the Sync center until it fits or the text is edited.
 function fileFlightReport(
+  s: Snapshot,
   op: FlightOperation,
   aircraft: Aircraft,
   now: number,
 ): Discrepancy | undefined {
   const description = op.input.discrepancy.trim();
   if (!description) return undefined;
+  assertReportRoom(s, op.authorId, description);
   return {
     uuid: op.uuid + "-discrepancy",
     aircraftUuid: aircraft.uuid,
@@ -451,4 +472,9 @@ function optionalRows(
       after: override,
     });
   return rows;
+}
+
+function assertReportRoom(s: Snapshot, authorId: string, description: string) {
+  if (passesReportLimit(s, authorId, description))
+    throw new FlightRejection(REPORT_LIMIT_REFUSAL);
 }

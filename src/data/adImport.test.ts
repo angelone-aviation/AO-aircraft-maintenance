@@ -107,14 +107,14 @@ it("refuses other files before reading them", async () => {
   );
   const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "big.docx");
   await expect(importADDocx(big)).rejects.toThrow(
-    "Report must be smaller than 10 MB.",
+    "Report must be smaller than 10 MiB.",
   );
   const empty = new File(
     [zipSync({ "word/x.xml": strToU8("<x/>") })],
     "a.docx",
   );
   await expect(importADDocx(empty)).rejects.toThrow(
-    "Document is invalid or its contents exceed 20 MB.",
+    "Document is invalid or its contents exceed 20 MiB.",
   );
 });
 
@@ -139,6 +139,26 @@ it("reads each row's cells as their text runs joined by spaces", async () => {
   expect(entries[0].sourceNotes).toBe("2001-01-01 | Subject:  Pump | Eff: x");
 });
 
+it("lists a table nested in a cell once, as its own table", async () => {
+  const cell = (...children: FakeElement[]) => element("tc", children);
+  const text = (t: string) => element("p", [element("t", [], t)]);
+  const nested = element("tbl", [
+    element("tr", [cell(text("2002-02-02")), cell(text("Eff: 2/2/2002"))]),
+  ]);
+  const outer = element("tbl", [
+    element("tr", [cell(text("2001-01-01")), cell(text("Eff: x"), nested)]),
+  ]);
+  stubDomParser(element("document", [outer]));
+  const docx = zipSync({ "word/document.xml": strToU8("<w:document/>") });
+  const { entries } = await importADDocx(new File([docx], "r.docx"));
+  expect(entries.map((e) => e.number)).toEqual(["2001-01-01", "2002-02-02"]);
+  expect(entries[0]).toMatchObject({
+    effective: "x",
+    sourceNotes: "2001-01-01 | Eff: x",
+  });
+  expect(entries[1].sourceNotes).toBe("2002-02-02 | Eff: 2/2/2002");
+});
+
 type FakeElement = {
   localName: string;
   namespace: string;
@@ -161,6 +181,7 @@ function stubDomParser(root: FakeElement) {
     e.children.flatMap((c) => [c, ...descendants(c)]);
   const wrap = (e: FakeElement): object => ({
     localName: e.localName,
+    namespaceURI: e.namespace,
     textContent: e.textContent,
     children: e.children.map(wrap),
     getElementsByTagName: (name: string) =>

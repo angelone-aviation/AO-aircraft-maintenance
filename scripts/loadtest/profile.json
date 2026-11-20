@@ -1,0 +1,22 @@
+{
+  "note": "Volume model for the Angel One load test. Rates are per aircraft per year unless marked.",
+  "now": "2026-11-09T12:00:00Z",
+  "aircraftCount": 6,
+  "yearsGenerated": 20,
+  "perAircraftPerYear": {
+    "flights": 300,
+    "flightPlans": 60,
+    "discrepancies": 30,
+    "workOrders": 12,
+    "jobCardsPerWorkOrder": 15,
+    "partsRequests": 30,
+    "purchaseOrders": 20,
+    "componentMovements": 10,
+    "recurringAdCompliances": 20
+  },
+  "fixedPerAircraft": { "components": 100, "inspections": 30, "ads": 40 },
+  "fixedPerProgram": { "stockRecords": 300, "locations": 10, "vendors": 25, "checklists": 6 },
+  "people": { "pilots": 12, "mechanics": 3, "owners": 1, "boardMembers": 1 },
+  "changeLog": "one audit row per write the app would have made, shaped like the app's own rows",
+  "openItemsLiveOnlyInNewestSlice": true
+}

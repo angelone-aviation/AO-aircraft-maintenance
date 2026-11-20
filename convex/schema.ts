@@ -133,6 +133,7 @@ export default defineSchema({
           airframe: v.optional(v.boolean()),
           powerplant: v.optional(v.boolean()),
           ia: v.optional(v.boolean()),
+          pending: v.optional(v.boolean()),
           legacyQualifications: v.optional(
             v.array(
               v.object({
@@ -531,7 +532,9 @@ export default defineSchema({
     deferral: v.optional(deferralValidator),
   })
     .index("uuid", ["uuid"])
-    .index("aircraft", ["aircraftUuid"]),
+    .index("aircraft", ["aircraftUuid"])
+    // A member's open reports, which their backlog limit counts (decision D2).
+    .index("author", ["authorId", "status"]),
   partsRequests: defineTable({
     uuid: v.string(),
     programUuid: v.string(),

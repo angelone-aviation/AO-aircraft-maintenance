@@ -126,7 +126,7 @@ it.each([
     readFlightPlanPdf(new File([new Uint8Array(size)], name), (stage) =>
       stages.push(stage),
     ),
-  ).rejects.toThrow("Choose a PDF smaller than 10 MB.");
+  ).rejects.toThrow("Choose a PDF smaller than 10 MiB.");
   expect(stages).toEqual(["Validate file"]);
 });
 

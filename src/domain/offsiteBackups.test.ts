@@ -22,23 +22,23 @@ describe("off-site backup freshness", () => {
       });
   });
 
-  it("is ok up to and including exactly 36 hours", () => {
-    expect(OFFSITE_STALE_AFTER_MS).toBe(36 * hour);
+  it("is ok up to and including exactly 26 hours", () => {
+    expect(OFFSITE_STALE_AFTER_MS).toBe(26 * hour);
     expect(at(2 * hour)).toEqual({
       status: "ok",
       message: "Last off-site backup 2 hours ago.",
     });
-    expect(at(36 * hour)).toEqual({
+    expect(at(26 * hour)).toEqual({
       status: "ok",
-      message: "Last off-site backup 36 hours ago.",
+      message: "Last off-site backup 26 hours ago.",
     });
   });
 
-  it("is stale one millisecond after 36 hours", () => {
-    expect(at(36 * hour + 1)).toEqual({
+  it("is stale one millisecond after 26 hours", () => {
+    expect(at(26 * hour + 1)).toEqual({
       status: "stale",
       message:
-        "No off-site backup for 36 hours. Check the Nightly backup job in GitHub Actions.",
+        "No off-site backup for 26 hours. Check the Nightly backup job in GitHub Actions.",
     });
     expect(at(47 * hour + 59 * minute).message).toMatch(
       /^No .* for 47 hours\./,
@@ -46,6 +46,21 @@ describe("off-site backup freshness", () => {
     expect(at(2 * 24 * hour + 5 * hour).message).toBe(
       "No off-site backup for 2 days. Check the Nightly backup job in GitHub Actions.",
     );
+  });
+
+  // Decision D10: the nightly job finishes about 08:45 UTC and the digest
+  // checks at 13:00 UTC, so one missed night must show at the next digest.
+  it("warns at the first digest after one missed night", () => {
+    const digest = Date.UTC(2026, 10, 10, 13, 0);
+    const finished = (day: number) => ({
+      completedAt: Date.UTC(2026, 10, day, 8, 45),
+    });
+    expect(offsiteFreshness(finished(10), digest).status).toBe("ok");
+    expect(offsiteFreshness(finished(9), digest)).toEqual({
+      status: "stale",
+      message:
+        "No off-site backup for 28 hours. Check the Nightly backup job in GitHub Actions.",
+    });
   });
 
   it("words ages in hours under two days, then in whole days", () => {

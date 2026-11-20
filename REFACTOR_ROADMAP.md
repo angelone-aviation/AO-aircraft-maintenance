@@ -202,7 +202,7 @@ Raised by the audit; not batches. Update as batches find more.
     - the \"Applicable / PCW\" list is defined in `airworthiness`, `partsPlanning`, `workOrders` and `adWorkOrders`;
     - the component label formula appears twice;
     - the preview of a completed order;
-    - the demo still differs from the server on: audit rows for saved addresses, FAA and program select; FAA wording and the monitor cap; the demo's `createUser` admin check; unknown group ids; PO attach wording; the evidence audit shape;
+    - ~~the demo still differs from the server on: audit rows for saved addresses, FAA and program select; FAA wording and the monitor cap; the demo's `createUser` admin check; unknown group ids; PO attach wording; the evidence audit shape~~ (done 2026-11-19: `runFaaCommand`, `selectProgram`, `assertAccountAdministrator`, `assertKnownGroups`; saved addresses were already audited);
     - the file-to-data-URL conversion is written four times in `demoBackend.ts`.
 60. **User-visible suggestion:** Dashboard search ignores the aircraft make (\"cessna\" finds nothing).
 61. **`Field` gives its label's `id` to its child through `cloneElement`,** so a wrapped control silently loses the label. Two lanes hit this; the markup comparison caught both times.

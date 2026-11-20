@@ -21,7 +21,7 @@ flowchart LR
     Fns["queries, mutations, actions"]
     DB[("database<br/>schema.ts")]
     Files[("file storage<br/>manuals, attachments, Form 337s")]
-    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>urgent alert check 13:10 UTC<br/>upload cleanup hourly"]
+    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>urgent alert check 13:10 UTC<br/>upload cleanup hourly<br/>sign-in records cleanup Sundays 07:20 UTC"]
   end
   subgraph Ext["Outside services (Convex actions only)"]
     FAA["FAA DRS API"]
@@ -57,7 +57,7 @@ flowchart LR
   Nightly --> Dropbox
 ```
 
-The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and `*.convex.cloud`/`*.convex.site`. The one planned exception is Sentry error reporting, off until a DSN and its ingest host are added ([monitoring runbook](docs/runbooks/monitoring.md)). Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
+The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and the production deployment's own `.convex.cloud`/`.convex.site` hosts (written into the published `_headers` at deploy; local and demo builds allow any `*.convex.cloud`/`*.convex.site`). The one planned exception is Sentry error reporting, off until a DSN and its ingest host are added ([monitoring runbook](docs/runbooks/monitoring.md)). Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
 
 ## 3. Code layers and directory ownership
 
@@ -72,13 +72,13 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | `src/data` | Data | Workspace store and outbox (`store.ts`); `Backend` interface and Convex adapter (`backend.ts`); demo adapter (`demoBackend.ts`) and seed (`demo.ts`); IndexedDB (`local.ts`); kept manuals (`deviceManuals.ts`); PDFs and reports (`*Pdf.ts`, `adReport.ts`, `aircraftStatusReport.ts`); file importers (`adImport.ts`, `fmd.ts`) | Render UI or import `src/components`; decide a permission the server does not also decide |
 | `convex` | Server | Schema, auth, every public function, permission checks (`access.ts`, `programContext.ts`), the command transaction (`runCommand.ts`), the audit writer, crons, auth HTTP routes, integrations, credential encryption (`secrets.ts`) | Import `src/data` or `src/components` outside tests; return a secret; insert into `audit` except through `writeAudit` |
 | `convex/_generated` | Generated | Convex codegen (`api`, `dataModel`) | Be edited by hand |
-| `scripts` | Script | Setup (`configure-auth.mjs`, `bootstrap-admin.mjs`), local smoke test, `serve-dist.mjs`, CSP check, icons; nightly backup and records workbook (`scripts/backup/`) | Print secrets; import `src/data` except test fixtures |
+| `scripts` | Script | Setup (`configure-auth.mjs`, `bootstrap-admin.mjs`), local smoke test, `serve-dist.mjs`, CSP check and deploy-time CSP pin, icons; nightly backup and records workbook (`scripts/backup/`) | Print secrets; import `src/data` except test fixtures |
 | `tests`, `*.test.ts` | Test | Playwright specs (`tests/e2e`) and fixtures; vitest and convex-test suites beside the code they test | Ship in the build |
 | `.github` | Tooling | CI; Deploy, which a green CI push to `main` starts, or a person by hand; first-time setup; nightly backup; Dependabot | Deploy from `ci.yml` (it holds no secrets; `deploy.yml` releases); release a commit that is not the newest on `main`; hold secrets outside the `production` and `backups` environments |
 | `.claude` | Tooling | Standards hooks and settings (owner-only, do not edit); vendored skills (`npx skills update` only) | Be edited by agents |
 | `docs` | Docs | Feature behaviour, ADRs, runbooks, architecture report, research | Contradict an accepted ADR without a new one |
 
-Also at the root: `public/` (headers, icons, fonts), `wrangler.jsonc` (Cloudflare site), `legecy php_project/` (retired PHP system, reference only).
+Also at the root: `public/` (headers, icons, fonts), `wrangler.jsonc` (Cloudflare site), `worker/` (the Worker that answers requests no built file matches: a 404 for a missing bundle, else the app shell), `legecy php_project/` (retired PHP system, reference only).
 
 ## 4. Data flow
 
@@ -173,7 +173,7 @@ Invariants:
 Current violations and exceptions (2026-11-03). Record fixes in `REFACTOR_ROADMAP.md`:
 
 - Domain modules that do network I/O: none since Batches 322 and 323. The Geoapify request lives in `convex/addressVerification.ts` and the FAA DRS requests in `convex/faaDrs.ts`; `src/domain` keeps only the pure parsing and merging.
-- Rules written twice, once per adapter (invariants 1 and 4), and drifted: the FAA monitor command (`faaCommand` in `src/data/demoBackend.ts` vs `command` in `convex/faa.ts`; Batch 285 moves the demo onto the domain rules from Batch 283). Flight review and discrepancy resolve were fixed by T11 and T2 (Batches 267–269, 297–300).
+- Rules written twice, once per adapter (invariants 1 and 4), and drifted: none known. The FAA monitor command (`runFaaCommand`), program selection (`selectProgram`) and the account checks the demo skipped moved into `src/domain` (roadmap Finding 59, 2026-11-19); flight review and discrepancy resolve were fixed by T11 and T2 (Batches 267–269, 297–300).
 - UI importing Convex directly: `src/components/SignInMethods.tsx:14-17` (`useQuery(api.identities.providers)` at :89, `useAuthActions` at :90; a pre-workspace sign-in screen like `main.tsx`). Screens and the outbox share one message helper, `errorText` in `src/data/errors.ts` (Batches 324, 418, 419); `Components.tsx:465` and `Management.tsx:1119` still show `error.message`.
 - Form-to-command shaping stays in components, for example the close-out readings in `WorkOrders.tsx`; ADR-0006 moves only those readings into the domain, after launch.
 - Minor: `src/data/auditHistory.ts:1` is a React hook in the data layer; `src/data/store.ts:64-68` hard-codes draft-key prefixes owned by `GuidedFlight.tsx:55`, `FlightSession.tsx:49` and `Checklists.tsx:77`.

@@ -35,9 +35,8 @@ it("words each renewal notice exactly", () => {
   expect(faaRenewal(status, "2027-08-15").message).toBe(
     "FAA API key expires on 2027-10-14 (60 days remaining). Renew it before AD monitoring is interrupted.",
   );
-  // Characterizes current behaviour: the day count is not singularized.
   expect(faaRenewal(status, "2027-10-13").message).toContain(
-    "(1 days remaining)",
+    "(1 day remaining)",
   );
   expect(faaRenewal(status, "2027-10-14")).toEqual({
     warning: true,

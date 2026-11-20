@@ -105,7 +105,7 @@ export function InventoryAttachments({
       <h3>Attachments</h3>
       <p>
         Attach item photos, invoices, certificates or other supporting
-        documents. PDF, JPEG, PNG or WebP, up to 7 MB per file.
+        documents. PDF, JPEG, PNG or WebP, up to 7 MiB per file.
       </p>
       {!live ? (
         <p className="notice">

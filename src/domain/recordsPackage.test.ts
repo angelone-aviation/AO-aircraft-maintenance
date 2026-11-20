@@ -28,7 +28,7 @@ import {
   type RecordsSectionId,
 } from "./recordsPackage";
 import { Rejection } from "./rejection";
-import { statusSheet } from "./statusSheet";
+import { statusSheet, type StatusSection } from "./statusSheet";
 import { saveWorkOrder, workOrderFieldsSchema } from "./workOrders";
 
 const TODAY = "2026-06-15";
@@ -146,8 +146,11 @@ describe("buildRecordsPackage", () => {
       ["changeLog", "change-log.csv"],
     ]);
     const status = statusSheet(s, s.aircraft[0].uuid, TODAY);
-    expect(pkg.sections.slice(0, 7).map((x) => x.rows)).toEqual(
-      status.sections.map((x) => x.rows),
+    const kept = (
+      x: Pick<StatusSection, "rows" | "statusColumn" | "tones">,
+    ) => [x.rows, x.statusColumn, x.tones];
+    expect(pkg.sections.slice(0, 7).map(kept)).toEqual(
+      status.sections.map(kept),
     );
     for (const x of pkg.sections) {
       expect(new Set(x.columns).size).toBe(x.columns.length);
@@ -694,14 +697,14 @@ describe("planPackageFiles", () => {
     );
     expect(plan.included.map((f) => f.path)).toEqual(["a", "b", "d"]);
     expect(plan.skipped).toEqual([
-      { file: file("c", 50 * MB), reason: "Over the 150 MB package limit" },
+      { file: file("c", 50 * MB), reason: "Over the 150 MiB package limit" },
     ]);
   });
 
-  it("defaults to 150 MB", () => {
+  it("defaults to 150 MiB", () => {
     expect(MAX_PACKAGE_FILE_BYTES).toBe(157_286_400);
     const plan = planPackageFiles([file("big", MAX_PACKAGE_FILE_BYTES + 1)]);
-    expect(plan.skipped[0].reason).toBe("Over the 150 MB package limit");
+    expect(plan.skipped[0].reason).toBe("Over the 150 MiB package limit");
   });
 });
 

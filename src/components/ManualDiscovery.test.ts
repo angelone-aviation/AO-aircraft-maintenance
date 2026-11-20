@@ -287,12 +287,12 @@ describe("CandidateForm requirements", () => {
   });
 });
 
-// Seeds the inspection form's aircraft, schedule and fixed ids.
+// Seeds the inspection form's aircraft, schedule and fixed record id.
 function inspection(target: string, mode: string) {
   const row = candidate({ kind: "inspection", initialHours: 50 });
   const model = base.aircraft[0].model;
   const scope = { kind: "aircraft", manufacturer: "", model, partNumber: "" };
-  hooks.seeds = ["", "", target, mode, "", "id", "request"];
+  hooks.seeds = ["", "", target, mode, "", "id"];
   const props = { row, scope, action: "inspection", onDone: () => {} };
   renderToStaticMarkup(createElement(CandidateForm, props as CandidateProps));
   return hooks.forms.get("Save inspection")!;
@@ -312,7 +312,7 @@ describe("inspection from a candidate", () => {
     const entries = { reference: "R", intervalHours: "100", dueHours: "50" };
     await inspection("demo-206", "initial")(fields(entries));
     expect(manage.mock.calls[0][0]).toMatchObject({
-      requestUuid: "request",
+      requestUuid: expect.stringMatching(/^[0-9a-f-]{36}$/),
       record: {
         uuid: "id",
         sourceKey: "src:initial",
@@ -320,6 +320,22 @@ describe("inspection from a candidate", () => {
         dueSeconds: 50 * 3600,
       },
     });
+  });
+
+  // Roadmap leftover (LO-1): a request id kept for the form's life made an
+  // edited save after a lost reply a reused id, which the server refuses.
+  it("resends an identical save under its request id, and an edited one under a new id", async () => {
+    const save = inspection("demo-206", "initial");
+    const entries = { reference: "R", intervalHours: "100", dueHours: "50" };
+    await save(fields(entries));
+    await save(fields(entries));
+    await save(fields({ ...entries, dueHours: "60" }));
+    const ids = manage.mock.calls.map(
+      ([command]) => (command as { requestUuid: string }).requestUuid,
+    );
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[2]).not.toBe(ids[0]);
+    expect(manage.mock.calls[2][0]).toMatchObject({ record: { uuid: "id" } });
   });
 
   it("previews the first limit reached, skipping a date still being typed", () => {

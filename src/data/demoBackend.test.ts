@@ -3,13 +3,15 @@
  *   and parts, checklist, job-card and flight-plan saves, template deletion,
  *   component templates, flight review, AD changes, attachments, manual
  *   edits, saved addresses, FAA monitor commands, program selection,
- *   membership and group saves, and recurring parts lists against the
- *   server's rules: the same refusals, stored records and change-log rows.
+ *   membership and group saves, recurring parts lists, and certificate
+ *   filing and approval against the server's rules: the same refusals,
+ *   stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
  *   checklists, taskCards, flightPlans, deleteInspectionTemplates,
- *   workOrders, purchaseOrders, manuals, addresses, faa), tests/fixtures.
+ *   workOrders, purchaseOrders, manuals, addresses, faa, reportBacklog),
+ *   convex/values (ConvexError), tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -30,7 +32,10 @@
  * Before Batch 292 it said "Select at least one group with read access." and
  * "Select groups within this Flight Program.", and saved a group with a name
  * over 100 characters, write permissions without read, or no Flight Program,
- * untrimmed and with repeats.
+ * untrimmed and with repeats. Before Finding 59's fix it logged no FAA
+ * command or program selection, said "Permission denied." and had no monitor
+ * cap, let anyone create an account unnormalized, kept unknown group ids,
+ * said "PO access denied." and logged evidence without the card.
  */
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
@@ -45,8 +50,13 @@ import {
   blankADTask,
   type AD,
 } from "../domain/airworthiness";
+import { ConvexError } from "convex/values";
 import { Rejection } from "../domain/rejection";
 import { MAX_ATTACHMENTS } from "../domain/attachments";
+import {
+  MAX_OPEN_REPORTS_PER_MEMBER,
+  REPORT_LIMIT_REFUSAL,
+} from "../domain/reportBacklog";
 import { saveTaskCard } from "../domain/taskCards";
 import { emptyChecklist } from "../domain/checklists";
 import type { FlightPlan } from "../domain/flightPlans";
@@ -57,7 +67,7 @@ import { poSchema } from "../domain/purchaseOrders";
 import type { Manual } from "../domain/manuals";
 import type { Group } from "../domain/model";
 import { addressSchema } from "../domain/addresses";
-import type { FaaMonitor } from "../domain/faa";
+import { MAX_ENABLED_FAA_MONITORS, type FaaMonitor } from "../domain/faa";
 import type { Backend } from "./backend";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import { templateDeletionFixture } from "../../tests/fixtures/templateDeletion";
@@ -121,6 +131,7 @@ it("defers and audits it as the server does: the program, the placard, the defer
   const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
   await backend.deferDiscrepancy({
     uuid: REPORT,
+    foundOn: localDate(before!.createdAt),
     deferredOn: localDate(),
     deferral: { type: "91.213d", placard: " LDG LT INOP ", notHazard: true },
   });
@@ -132,6 +143,7 @@ it("defers and audits it as the server does: the program, the placard, the defer
       type: "91.213d",
       placard: "LDG LT INOP",
       notHazard: true,
+      foundOn: localDate(before!.createdAt),
       deferredOn: localDate(),
       deferredAt: expect.any(Number),
       deferredBy: s.user.id,
@@ -536,6 +548,38 @@ it("logs a submitted flight and problem report under the aircraft's program, as 
   expect(report).toMatchObject({ ...logged, action: "discrepancy.created" });
 });
 
+it("refuses a report past the member's open-report limit as a ConvexError, as the server does (D2)", async () => {
+  const { backend, stored } = await demo("demo-report-limit", (seed) => {
+    seed.discrepancies = Array.from(
+      { length: MAX_OPEN_REPORTS_PER_MEMBER },
+      (_, i) => ({
+        uuid: `open-${i}`,
+        aircraftUuid: seed.aircraft[0].uuid,
+        description: "Short",
+        status: "open" as const,
+        authorId: seed.user.id,
+        createdAt: 0,
+      }),
+    );
+  });
+  const { user, aircraft } = await stored();
+  const refused = await backend
+    .submit({
+      programUuid: "demo-program",
+      uuid: crypto.randomUUID(),
+      authorId: user.id,
+      kind: "discrepancy",
+      aircraftUuid: aircraft[0].uuid,
+      description: "One more",
+    })
+    .catch((e) => e);
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({ data: REPORT_LIMIT_REFUSAL });
+  expect((await stored()).discrepancies).toHaveLength(
+    MAX_OPEN_REPORTS_PER_MEMBER,
+  );
+});
+
 // The server receives FlightForm's cleared fields absent; the demo, undefined.
 it.each([
   ["left out", {}],
@@ -738,6 +782,48 @@ function withRecords(s: Snapshot) {
   ];
 }
 
+it("logs a receipt's file on the order and on each item it received, as the server does (T3)", async () => {
+  const { backend, stored } = await demo("demo-po-file", (seed) => {
+    withRecords(seed);
+    seed.purchaseOrders![0].receipts = [
+      {
+        uuid: "receipt",
+        date: "2026-01-01",
+        invoice: "",
+        notes: "",
+        actorId: seed.user.id,
+        lines: [
+          {
+            lineUuid: "line",
+            quantity: 1,
+            condition: "new",
+            itemUuids: ["tire-lot"],
+            serials: [],
+          },
+        ],
+      },
+    ];
+  });
+  await backend.attachPOFile("po", "receipt", pdf());
+  const file = { name: "scan.pdf", size: pdf().size };
+  expect((await stored()).audit.slice(0, 2).reverse()).toMatchObject([
+    {
+      action: "purchaseOrder.attachment",
+      entityUuid: "po",
+      programUuid: "demo-program",
+      reason: "Receipt attachment uploaded",
+      after: JSON.stringify({ ...file, receiptUuid: "receipt" }),
+    },
+    {
+      action: "inventory.attachment",
+      entityUuid: "tire-lot",
+      programUuid: "demo-program",
+      reason: "Receipt attachment from PO-1",
+      after: JSON.stringify(file),
+    },
+  ]);
+});
+
 it("files evidence on a signed job card: every signoff cleared, at a new version", async () => {
   const { backend, stored } = await demo("demo-evidence", (seed) => {
     withRecords(seed);
@@ -773,8 +859,12 @@ it("files evidence on a signed job card: every signoff cleared, at a new version
     action: "taskCard.evidence",
     entityUuid: card.uuid,
     aircraftUuid: card.aircraftUuid,
-    before: undefined,
-    after: JSON.stringify({ name: "scan.pdf", category: "parts-traceability" }),
+    before: JSON.stringify(card),
+    after: JSON.stringify({
+      ...s.taskCards![0],
+      evidenceName: "scan.pdf",
+      category: "parts-traceability",
+    }),
   });
 });
 
@@ -1098,7 +1188,72 @@ it("configures an FAA monitor as the server does: the run and its error reset", 
   ]);
 });
 
+// Roadmap Finding 59: the demo logged no FAA command or program selection,
+// worded the permission refusal its own way and had no monitor cap.
+it("audits an FAA command and a program selection as the server does", async () => {
+  const { backend, stored } = await demo("demo-faa-audit");
+  const command = {
+    kind: "configure" as const,
+    aircraftUuid: MONITOR.aircraftUuid,
+    enabled: true,
+    terms: ["IO-540"],
+  };
+  await backend.faaCommand(command);
+  await backend.selectProgram(PROGRAM);
+  const [selected, configured] = (await stored()).audit;
+  expect(configured).toMatchObject({
+    action: "faa.configure",
+    entityUuid: MONITOR.aircraftUuid,
+    aircraftUuid: MONITOR.aircraftUuid,
+    programUuid: PROGRAM,
+    after: JSON.stringify(command),
+  });
+  expect(selected).toMatchObject({
+    action: "program.selected",
+    entityUuid: PROGRAM,
+    programUuid: PROGRAM,
+  });
+});
+
+it("refuses a 26th monitored aircraft with the server's cap", async () => {
+  const { backend, stored } = await demo("demo-faa-cap", (seed) => {
+    const [first] = seed.aircraft;
+    for (let i = 0; i < MAX_ENABLED_FAA_MONITORS; i++) {
+      seed.aircraft.push({ ...first, uuid: `other-${i}` });
+      (seed.faaMonitors ??= []).push({
+        ...MONITOR,
+        aircraftUuid: `other-${i}`,
+        enabled: true,
+      });
+    }
+  });
+  const before = await stored();
+  const error = await backend
+    .faaCommand({
+      kind: "configure",
+      aircraftUuid: MONITOR.aircraftUuid,
+      enabled: true,
+      terms: [],
+    })
+    .catch((e) => e);
+  expect(error).toBeInstanceOf(Rejection);
+  expect(error).toMatchObject({
+    message: `A Flight Program can monitor at most ${MAX_ENABLED_FAA_MONITORS} aircraft daily. Turn off monitoring on another aircraft first.`,
+  });
+  expect(await stored()).toEqual(before);
+});
+
 it.each<[string, (backend: Backend) => Promise<unknown>]>([
+  [
+    "Aircraft maintenance permission required.",
+    (backend) =>
+      backend.faaCommand({
+        kind: "configure",
+        aircraftUuid: "unknown-aircraft",
+        enabled: true,
+        terms: [],
+      }),
+  ],
   [
     "Candidate not found.",
     (backend) =>
@@ -1126,6 +1281,66 @@ it.each<[string, (backend: Backend) => Promise<unknown>]>([
     expect(await stored()).toEqual(before);
   },
 );
+
+it.each<[string, (s: Snapshot) => void, string]>([
+  [
+    "Inventory administrator access required.",
+    (s) => {
+      withRecords(s);
+      s.user = { ...s.user, isAdmin: false, groupIds: [] };
+    },
+    "po",
+  ],
+  ["PO not found.", withRecords, "no-such-po"],
+])(
+  "refuses a purchase-order file with the server's %s",
+  async (message, edit, poUuid) => {
+    const { backend, stored } = await demo(`demo-po-file-${poUuid}`, edit);
+    const before = await stored();
+    const error = await backend
+      .attachPOFile(poUuid, undefined, pdf())
+      .catch((e) => e);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+it("creates an account as the server does: administrators only, email and name normalized", async () => {
+  const password = "a-long-demo-password-1";
+  const { backend, stored } = await demo("demo-create-user");
+  const id = await backend.createUser(
+    " New@Example.TEST ",
+    " New User ",
+    password,
+  );
+  expect((await stored()).members.find((m) => m.id === id)).toMatchObject({
+    email: "new@example.test",
+    name: "New User",
+  });
+  const member = await demo("demo-create-user-member", (seed) => {
+    seed.user = { ...seed.user, isAdmin: false };
+  });
+  const before = await member.stored();
+  const error = await member.backend
+    .createUser("other@example.test", "Other", password)
+    .catch((e) => e);
+  expect(error).toMatchObject({
+    message: "Administrator permission required.",
+  });
+  expect(await member.stored()).toEqual(before);
+});
+
+it("refuses a group id no group has, as the server does", async () => {
+  const { backend, stored } = await demo("demo-unknown-group");
+  const before = await stored();
+  const pilot = before.members.find((m) => !m.isAdmin)!;
+  const error = await backend
+    .updateUser({ ...pilot, groupIds: [...pilot.groupIds, "no-such-group"] })
+    .catch((e) => e);
+  expect(error).toBeInstanceOf(Rejection);
+  expect(error).toMatchObject({ message: "Group not found." });
+  expect(await stored()).toEqual(before);
+});
 
 // The seed plus a write-only group in the program and a group elsewhere.
 function withGroups(s: Snapshot) {
@@ -1381,4 +1596,44 @@ it("saves engine limits per aircraft and audits engineTrend.limits on the aircra
     chtMaxF: 420,
     oilPressureMinPsi: 30,
   });
+});
+
+it("files a certificate as pending and approves it as the server does, never the approver's own", async () => {
+  const { backend, stored } = await demo("demo-certificates");
+  const filed = { kind: "mechanic" as const, number: "M-1", issuedOn: "" };
+  await backend.saveCertifications("demo-pilot", [filed]);
+  await backend.saveCertifications("demo-admin", [filed]);
+  const pilotOf = (s: Snapshot) =>
+    s.members.find((m) => m.id === "demo-pilot")!;
+  expect(pilotOf(await stored()).certifications).toEqual([
+    { ...filed, pending: true },
+  ]);
+  expect(await backend.certificatesAwaitingApproval()).toEqual([
+    { userId: "demo-pilot", name: "Jordan Lee", certificate: filed },
+  ]);
+  await expect(backend.approveCertificate("demo-admin", filed)).rejects.toThrow(
+    /nobody their own/,
+  );
+  await backend.approveCertificate("demo-pilot", filed);
+  const s = await stored();
+  expect(pilotOf(s)).toMatchObject({
+    certifications: [filed],
+    licenseNumber: "M-1",
+  });
+  expect(
+    s.audit
+      .filter((a) => a.entityUuid === "demo-pilot")
+      .map((a) => [a.action, a.before, a.after]),
+  ).toEqual([
+    [
+      "user.certification_approved",
+      JSON.stringify({ ...filed, pending: true }),
+      JSON.stringify(filed),
+    ],
+    [
+      "user.certification_filed",
+      "null",
+      JSON.stringify({ ...filed, pending: true }),
+    ],
+  ]);
 });

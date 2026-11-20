@@ -2265,7 +2265,7 @@ function UploadAttachment({
     <AsyncForm submitLabel="Upload attachment" onSubmit={onUpload}>
       <Field
         label="Maintenance record file"
-        hint="PDF, JPEG or PNG, up to 7 MB"
+        hint="PDF, JPEG or PNG, up to 7 MiB"
       >
         <input
           key={fileKey}

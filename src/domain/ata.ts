@@ -95,7 +95,7 @@ export const ATA_GROUPS = [
       ["64", "Tail Rotor"],
       ["65", "Tail Rotor Drive"],
       ["66", "Folding Blades and Pylons"],
-      ["67", "Rotory Flight Controls"],
+      ["67", "Rotor Flight Controls"],
     ],
   },
   {

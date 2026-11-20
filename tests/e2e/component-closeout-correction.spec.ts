@@ -65,10 +65,8 @@ test("corrects an overhaul to a repair with a preview, keeps the original close-
   ).toBeVisible();
   await expect(panel.getByText(/^Logbook review required/)).toBeVisible();
   const addendum = await downloadAddendum(page, panel);
-  // Characterizes current behaviour: no full stop is added after a work
-  // description that lacks one.
   expect(addendum.replace(ISO_TIMESTAMP, "<recorded>")).toBe(
-    `Correction to work order ${ORDER_NUMBER}, component Engine P/N PN; S/N SN, maintenance dated ${today}: Overhauled corrected to Repaired. ${REPAIR} Corrected completion TSN 110.0 h; TSO 30.0 h; TSR 0.0 h; cycles 40. Reason: ${REASON}. Recorded by Alex Morgan on <recorded>. Review alongside the original logbook entry.`,
+    `Correction to work order ${ORDER_NUMBER}, component Engine P/N PN; S/N SN, maintenance dated ${today}: Overhauled corrected to Repaired. ${REPAIR}. Corrected completion TSN 110.0 h; TSO 30.0 h; TSR 0.0 h; cycles 40. Reason: ${REASON}. Recorded by Alex Morgan on <recorded>. Review alongside the original logbook entry.`,
   );
   await expect(
     panel.getByText(`Reason: ${REASON}`, { exact: true }),
