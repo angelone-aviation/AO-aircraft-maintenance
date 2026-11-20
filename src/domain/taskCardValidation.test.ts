@@ -150,9 +150,11 @@ it("lists every reason a job card cannot be signed yet, in order", () => {
     taskCardSigningWarnings({ ...fields, completionDate: "9999-12-31" }, true),
   ).toEqual([
     "Completion date cannot be in the future.",
-    "Change Task status to Ready or In progress and save before signing.",
-    "Save the job card before signing.",
+    "Save the job card first: Task status unlocks after the first save. Then change it to Ready or In progress and save again before signing.",
   ]);
+  expect(taskCardSigningWarnings({ ...fields, status: "ready" }, true)).toEqual(
+    ["Save the job card before signing."],
+  );
   expect(taskCardSigningWarnings(fields, true, stored)).toEqual([
     "Change Task status to Ready or In progress and save before signing.",
     "Save your changes before signing. Changes clear existing signoffs.",

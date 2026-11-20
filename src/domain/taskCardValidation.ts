@@ -83,8 +83,10 @@ export function taskCardSaveWarnings(
  * @param fields - The form's fields.
  * @param dirty - Whether the form has unsaved changes.
  * @param initial - The stored card; undefined before the first save.
- * @returns In order: a future completion date, a draft status, then an
- *   unsaved card or unsaved changes; [] when it can be signed.
+ * @returns In order: a future completion date; then, for an unsaved card,
+ *   one save-first warning (naming the status change for a draft); else a
+ *   draft status and unsaved changes; [] when none applies. A blank
+ *   completion date is not warned here; the server refuses the signoff.
  */
 export function taskCardSigningWarnings(
   fields: TaskCardFields,
@@ -94,12 +96,21 @@ export function taskCardSigningWarnings(
   const warnings: string[] = [];
   if (fields.completionDate > localDate())
     warnings.push("Completion date cannot be in the future.");
+  // Task status stays locked until the first save, so a new draft card is
+  // told to save before it is told to change the status.
+  if (!initial) {
+    warnings.push(
+      fields.status === "draft"
+        ? "Save the job card first: Task status unlocks after the first save. Then change it to Ready or In progress and save again before signing."
+        : "Save the job card before signing.",
+    );
+    return warnings;
+  }
   if (fields.status === "draft")
     warnings.push(
       "Change Task status to Ready or In progress and save before signing.",
     );
-  if (!initial) warnings.push("Save the job card before signing.");
-  else if (dirty)
+  if (dirty)
     warnings.push(
       "Save your changes before signing. Changes clear existing signoffs.",
     );

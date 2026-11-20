@@ -14,7 +14,7 @@ Save a draft before uploading evidence. PDF, JPEG and PNG files up to 7 MiB can 
 
 Statuses are draft, ready, in progress, awaiting parts, awaiting inspection, completed and canceled. To complete a card:
 
-1. Change Draft to In progress, enter actual work performed and a completion date, then save.
+1. Change Draft to In progress, enter the completion date (today or earlier), then save. The date is required: signing or completing a card without one is refused with "Enter a completion date (today or earlier) before signing or completing this job card." Actual work performed is optional but belongs in the record.
 2. Record technician signoff, then inspection signoff when required.
 3. Select completed and save.
 

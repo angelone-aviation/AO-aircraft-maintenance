@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins job cards: a linked card's notes, evidence, parts and
- *   signoffs; inspector signoff only with an approved maintenance
+ *   signoffs; a new card's signing advice and completion-date hint; inspector signoff only with an approved maintenance
  *   certificate on file;
  *   the stock picker's usable quantities and expired lots; and no
  *   unreachable scrolling region on an empty list.
@@ -14,6 +14,10 @@ import { localDate } from "../../src/domain/model";
 import { approveOwnCertificatesInStore } from "../fixtures/demoCertificates";
 
 const DAY_MS = 86400000;
+const NEW_CARD_SIGNING =
+  "Save the job card first: Task status unlocks after the first save. Then change it to Ready or In progress and save again before signing.";
+const COMPLETION_DATE_HINT =
+  "Required to sign — today or earlier. Signing or completing without one is refused.";
 const INSPECTOR_HINT =
   "Add your certificate type and number under My certifications to sign as inspector.";
 const PENDING_HINT =
@@ -77,6 +81,11 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
   await draft
     .getByLabel("Notes / remarks", { exact: true })
     .fill("Measure system pressure, expected 10–20 psi.");
+  await expect(
+    draft.getByRole("status").filter({ hasText: "Before signing:" }),
+  ).toContainText(NEW_CARD_SIGNING);
+  await expect(draft.getByLabel("Task status", { exact: true })).toBeDisabled();
+  await expect(draft.getByText(COMPLETION_DATE_HINT)).toBeVisible();
   await saveButton(draft).click();
   const editor = page.getByRole("dialog", {
     name: "Job card TC-BROWSER",

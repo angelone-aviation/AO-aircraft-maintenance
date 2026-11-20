@@ -1790,7 +1790,7 @@ function ExecutionFields({ e }: { e: Editor }) {
       </Field>
       <Field
         label="Completion date"
-        hint="Optional — automatically records today’s date when you sign if left blank."
+        hint="Required to sign — today or earlier. Signing or completing without one is refused."
       >
         <input
           type="date"

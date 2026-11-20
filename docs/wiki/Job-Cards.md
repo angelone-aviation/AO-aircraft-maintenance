@@ -39,9 +39,10 @@ Later template edits change future copies only.
 2. Fill in the title, description, ATA chapter and **Maintenance-data
    reference** (or a **Reference library manual** and page), then **Save job
    card**. A new card saves as a draft.
-3. Change **Task status** to **ready** or **in progress** and save again.
-4. Under **Execution**, enter **Actual work performed** and a **Completion
-   date** (today or earlier). Save.
+3. Change **Task status** to **ready** or **in progress** and save again. The
+   status is locked until the first save.
+4. Under **Execution**, enter the **Completion date** (today or earlier),
+   required to sign, and **Actual work performed** (optional). Save.
 5. Record parts under **Parts used and component changes**: a **Non-stock
    item**, or **Inventory stock** from a location.
 6. Upload evidence (photos, documents or parts traceability; PDF, JPEG or PNG,
@@ -52,7 +53,9 @@ Later template edits change future copies only.
 9. Set the status to **completed** and save.
 
 The boxes **Before saving** and **Before signing** at the top list what is
-still missing.
+still missing. On a new card, **Before signing** says to save first: "Save the
+job card first: Task status unlocks after the first save. Then change it to
+Ready or In progress and save again before signing."
 
 | Status              | Means                              |
 | ------------------- | ---------------------------------- |
