@@ -38,7 +38,7 @@ Out of scope:
 - social engineering of our members, staff or providers;
 - physical attacks;
 - automated scanning that degrades the service;
-- third-party services, such as Convex, Cloudflare, Google or Microsoft:
+- third-party services, such as Convex, Cloudflare, GitHub or Resend:
   report those to the provider.
 
 
