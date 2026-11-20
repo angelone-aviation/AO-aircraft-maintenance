@@ -39,7 +39,6 @@ import {
   canPageAuditFilter,
   clampAuditPageSize,
   HISTORY_NOT_FOUND,
-  MAX_AUDIT_PAGE_SIZE,
   type AuditFilter,
   type AuditPage,
 } from "../src/domain/auditHistory";
@@ -47,12 +46,23 @@ import type { AuditEntry, Snapshot } from "../src/domain/model";
 
 // Entries read per request before a page is returned short; only reached when
 // a long run of the caller's own program index is hidden from them. The
-// summary shares it, and says when the period was cut short by it.
+// summary reads no more rows either, and says when the period was cut short.
 const SCAN_BUDGET = 4000;
 // The records the summary looks up by uuid, three index ranges each, to
 // decide which rows a caller may see before it reports the period cut short,
 // as it does past SCAN_BUDGET.
 const LOOKUP_BUDGET = 100;
+const MIB = 1024 * 1024;
+// What a summary reads in all, as Convex counts bytes, before it stops and
+// says the period was cut short: the plan's 4 MiB bar (a quarter of Convex's
+// 16 MiB read limit, ADR-0013) less 1 MiB for the round that crosses it. At
+// the size test's volume a month fits, with change-log rows of 2 to 4 KB.
+const SUMMARY_READ_BUDGET = 3 * MIB;
+// Rows a summary source reads per page: the round that crosses the budget
+// reads a page from a source or two, which stays within its 1 MiB margin
+// for rows up to 20 KB. The load test's rows average 3.7 KB; its largest, a
+// work order's before and after, is 15 KB.
+const SUMMARY_PAGE_ROWS = 25;
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 // The furthest any time zone's midnight lies from UTC midnight (UTC+14 and
@@ -66,6 +76,8 @@ type NamedRecords = {
   [K in "costs" | "partsRequests" | "purchaseOrders"]: NonNullable<Snapshot[K]>;
 };
 type Source = (below: number | undefined) => Promise<Doc<"audit">[]>;
+/** A page of one index range, from the summary's period start to `below`. */
+type PeriodSource = (below: number) => Promise<Doc<"audit">[]>;
 type Scan = {
   visible: Doc<"audit">[];
   exhausted: boolean;
@@ -126,7 +138,8 @@ export const page = query({
  * per-actor counts by action family, notable events and refused sign-ins
  * (src/domain/auditSummary), from the same entries History pages. Days are
  * the caller's when it sends its local midnights, else the server's (UTC)
- * dates of each entry.
+ * dates of each entry. Each row is read once, newest first, within the
+ * period; an aircraft's rows only when the program's own index misses some.
  *
  * @param programUuid - The caller's active Flight Program.
  * @param from - The first day, as an ISO date.
@@ -134,11 +147,12 @@ export const page = query({
  * @param fromMs - The caller's midnight at the start of `from`; with `toMs`.
  *   Without both, days start at midnight in the records time zone.
  * @param toMs - The caller's midnight just after `to`.
- * @returns The summary; `truncated: true` when 4,000 entries were read
- *   before the period's start was reached, so older entries in it are not
- *   counted (narrow the period in that case); and `accountWide`, true only
- *   for a system administrator in Unassigned records, the one reader of
- *   refused sign-ins and other account-wide entries.
+ * @returns The summary; `truncated: true` when the call read 3 MiB, 4,000
+ *   change-log rows or 100 looked-up records before reaching the period's
+ *   start, so its older entries are not counted (narrow the period in that
+ *   case); and `accountWide`, true only for a system administrator in
+ *   Unassigned records, the one reader of refused sign-ins and other
+ *   account-wide entries.
  * @throws {ConvexError} "Flight Program administrator required."; "Choose a
  *   start and end date." for a date that is not YYYY-MM-DD, or bounds that
  *   are not that date's midnight in some time zone; "Choose a start date on
@@ -163,14 +177,8 @@ export const summary = query({
       state,
       await completeRecords(ctx, state),
     );
-    const sources = selectSources(
-      ctx,
-      state,
-      seen.canSee,
-      {},
-      MAX_AUDIT_PAGE_SIZE,
-    );
-    const scan = await scanPeriod(sources, seen, period);
+    const sources = await periodSources(ctx, state, seen.canSee, period);
+    const scan = await scanPeriod(ctx, sources, seen, period.toMs);
     const entries = scan.rows.map(
       ({ _id, _creationTime, ...entry }): AuditEntry => entry,
     );
@@ -315,7 +323,7 @@ async function programRecordsByUuid(
   };
 }
 
-function parsePeriod(period: SummaryPeriod): SummaryPeriod {
+function parsePeriod(period: SummaryPeriod): Required<SummaryPeriod> {
   const { from, to, fromMs, toMs } = period;
   if (!ISO_DATE.test(from) || !ISO_DATE.test(to))
     throw new ConvexError("Choose a start and end date.");
@@ -453,31 +461,179 @@ async function scanVisible(
   return { visible, exhausted, floor };
 }
 
-// Reads rounds from just after the period's last day down to its first day,
-// by creation time (written in the same mutation as `at`, so the two agree),
-// until every source is exhausted or a budget is spent: the rows scanned, or
-// the records looked up to decide them.
+// The summary's sources, each from the period's first midnight up, by
+// creation time (written in the same mutation as `at`, so the two agree):
+// the program's own index, the rows a transfer listed, and each readable
+// aircraft's index when it holds a row the program's index misses.
+async function periodSources(
+  ctx: QueryCtx,
+  state: Snapshot,
+  canSee: CanSee,
+  { fromMs, toMs }: Required<SummaryPeriod>,
+): Promise<PeriodSource[]> {
+  // A one-day period's bounds, each near a midnight in some time zone, can
+  // cross; the period then holds nothing, and no range is read backwards.
+  if (fromMs >= toMs) return [];
+  const program = activeProgram(state);
+  const readable = state.aircraft.filter((a) =>
+    canPageAuditFilter(canSee, { aircraftUuid: a.uuid }),
+  );
+  const missed = await Promise.all(
+    readable.map((a) => holdsRowsOfAnother(ctx, a.uuid, program)),
+  );
+  return [
+    readPeriod(ctx, "program", "programUuid", program, fromMs),
+    ...readable
+      .filter((_, n) => missed[n])
+      .map((a) => readPeriod(ctx, "aircraft", "aircraftUuid", a.uuid, fromMs)),
+    (below) =>
+      transferredAuditDocs(ctx, program, SUMMARY_PAGE_ROWS, below, fromMs),
+  ];
+}
+
+// Whether the aircraft holds a row another program wrote (before it joined
+// this one) or none did: a missing tag sorts below every tag, so one row at
+// most is read on either side of the program's. Without a program, every
+// tagged row is another's.
+async function holdsRowsOfAnother(
+  ctx: QueryCtx,
+  aircraftUuid: string,
+  program: string | undefined,
+): Promise<boolean> {
+  if (program === undefined) return true;
+  const [below, above] = await Promise.all([
+    ctx.db
+      .query("audit")
+      .withIndex("aircraftProgram", (q) =>
+        q.eq("aircraftUuid", aircraftUuid).lt("programUuid", program),
+      )
+      .first(),
+    ctx.db
+      .query("audit")
+      .withIndex("aircraftProgram", (q) =>
+        q.eq("aircraftUuid", aircraftUuid).gt("programUuid", program),
+      )
+      .first(),
+  ]);
+  return below !== null || above !== null;
+}
+
+function readPeriod(
+  ctx: QueryCtx,
+  index: "program" | "aircraft",
+  field: "programUuid" | "aircraftUuid",
+  value: string | undefined,
+  fromMs: number,
+): PeriodSource {
+  return (below) =>
+    ctx.db
+      .query("audit")
+      .withIndex(index, (q) =>
+        q
+          .eq(field, value)
+          .gte("_creationTime", fromMs)
+          .lt("_creationTime", below),
+      )
+      .order("desc")
+      .take(SUMMARY_PAGE_ROWS);
+}
+
+// Counts the sources' rows newest first from the period's end, until all are
+// read or a budget is spent before the next page: the call's bytes, the rows
+// read, or the records looked up to decide them. The first pages are always
+// read, as the lookups' first round is.
 async function scanPeriod(
-  sources: Source[],
+  ctx: QueryCtx,
+  sources: PeriodSource[],
   seen: RowVisibility,
-  period: SummaryPeriod,
+  toMs: number,
 ): Promise<{ rows: Doc<"audit">[]; truncated: boolean }> {
-  const start = period.fromMs ?? Date.parse(period.from + "T00:00:00Z");
+  const merge = new PeriodMerge(sources, toMs);
   const rows: Doc<"audit">[] = [];
-  let floor = period.toMs ?? Date.parse(period.to + "T00:00:00Z") + DAY_MS;
   let scanned = 0;
-  while (floor > start) {
-    if (scanned >= SCAN_BUDGET) return { rows, truncated: true };
-    const batches = await Promise.all(sources.map((s) => s(floor)));
-    scanned += batches.reduce((sum, b) => sum + b.length, 0);
-    const edge = findCompleteEdge(batches, MAX_AUDIT_PAGE_SIZE);
-    const complete = mergeCompleteRows(batches, edge);
+  while (!merge.finished) {
+    if (scanned > 0 && (await isOverBudget(ctx, scanned)))
+      return { rows, truncated: true };
+    scanned += await merge.readPages();
+    const complete = merge.takeComplete();
     if (!(await seen.learn(complete))) return { rows, truncated: true };
     rows.push(...complete.filter(seen.canSee));
-    if (edge === undefined) break;
-    floor = edge._creationTime;
   }
   return { rows, truncated: false };
+}
+
+async function isOverBudget(ctx: QueryCtx, scanned: number): Promise<boolean> {
+  if (scanned >= SCAN_BUDGET) return true;
+  const { bytesRead } = await ctx.meta.getTransactionMetrics();
+  return bytesRead.used >= SUMMARY_READ_BUDGET;
+}
+
+/** One summary source: its rows read and not yet counted, newest first. */
+interface SourceCursor {
+  read: PeriodSource;
+  rows: Doc<"audit">[];
+  /** The oldest row read's creation time; the next page starts below it. */
+  below: number;
+  done: boolean;
+}
+
+/**
+ * The summary's sources merged newest first, each read a page at a time, so
+ * a row is read once by each source that holds it, never again on a later
+ * round and never before the period's start.
+ */
+class PeriodMerge {
+  private readonly cursors: SourceCursor[];
+
+  constructor(sources: PeriodSource[], toMs: number) {
+    this.cursors = sources.map((read) => ({
+      read,
+      rows: [],
+      below: toMs,
+      done: false,
+    }));
+  }
+
+  /** True once every source is read and all its rows taken. */
+  get finished(): boolean {
+    return this.cursors.every((c) => c.done && c.rows.length === 0);
+  }
+
+  /**
+   * Reads the next page of each source whose rows are all taken; a short
+   * page is the last. Taking always empties one, so a round reads at least
+   * one page.
+   *
+   * @returns The rows read.
+   */
+  async readPages(): Promise<number> {
+    const waiting = this.cursors.filter((c) => !c.done && !c.rows.length);
+    const pages = await Promise.all(waiting.map((c) => c.read(c.below)));
+    waiting.forEach((c, n) => {
+      c.rows = pages[n];
+      c.done = pages[n].length < SUMMARY_PAGE_ROWS;
+      c.below = pages[n].at(-1)?._creationTime ?? c.below;
+    });
+    return pages.reduce((sum, page) => sum + page.length, 0);
+  }
+
+  /**
+   * Takes the rows no unread row is newer than: those from the oldest row of
+   * the source read least far up, or every row once all are read.
+   *
+   * @returns Each row once, though two sources hold it, newest first.
+   */
+  takeComplete(): Doc<"audit">[] {
+    const open = this.cursors.filter((c) => !c.done).map((c) => c.below);
+    const edge = open.length > 0 ? Math.max(...open) : -Infinity;
+    const taken = this.cursors.flatMap((c) => {
+      const left = c.rows.filter((d) => d._creationTime < edge);
+      const complete = c.rows.slice(0, c.rows.length - left.length);
+      c.rows = left;
+      return complete;
+    });
+    return mergeCompleteRows([taken], undefined);
+  }
 }
 
 // Rows at or above the newest last row of any full batch are complete: no

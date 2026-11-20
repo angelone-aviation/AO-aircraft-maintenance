@@ -1,19 +1,21 @@
 /**
  * Responsibility: Pins the weekly summary query: Flight Program
  *   administrators only, the period checks and the caller's own day bounds,
- *   counts over the visible entries of the active program only, records
- *   read by uuid to decide them, refused sign-ins counted only where they
- *   are read, and the flag set when the scan or lookup budget cuts the
- *   period short.
+ *   counts over the visible entries of the active program only, each once
+ *   whichever index reaches it, records read by uuid to decide them,
+ *   refused sign-ins counted only where they are read, and the flag set when
+ *   the scan or lookup budget cuts the period short.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/auditHistory, convex/collections, src/data/demo,
- *   src/domain (auditSummary, purchaseOrders, partsRequests, costs).
+ *   src/domain (auditSummary, purchaseOrders, partsRequests, costs,
+ *   management).
  */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { afterEach, it, expect, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { summary } from "./auditHistory";
 import { demoSnapshot } from "../src/data/demo";
 import type { AuditSummaryResult } from "../src/domain/auditSummary";
 import { encode } from "./collections";
@@ -24,6 +26,7 @@ import {
   type PartsRequest,
 } from "../src/domain/partsRequests";
 import { costRecordSchema, type CostRecord } from "../src/domain/costs";
+import { recordSchema } from "../src/domain/management";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -31,6 +34,7 @@ const modules = import.meta.glob([
   "!./**/*.d.ts",
 ]);
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 const PROGRAM = "demo-program";
 const NOW = Date.now();
 const TODAY = new Date(NOW).toISOString().slice(0, 10);
@@ -42,6 +46,8 @@ const WEEK = {
 type Row = {
   action: string;
   daysAgo: number;
+  /** The exact time, in place of `daysAgo`. */
+  at?: number;
   entityUuid?: string;
   actorId?: string;
   reason?: string;
@@ -49,6 +55,8 @@ type Row = {
   programUuid?: string;
   after?: string;
 };
+
+afterEach(() => vi.useRealTimers());
 
 async function fixture(rows: Row[]) {
   const t = convexTest(schema, modules);
@@ -91,6 +99,7 @@ async function fixture(rows: Row[]) {
   });
   return {
     t,
+    adminSubject: ids.admin,
     admin: t.withIdentity({ subject: ids.admin }),
     reader: t.withIdentity({ subject: ids.reader }),
     outsider: t.withIdentity({ subject: ids.outsider }),
@@ -98,7 +107,7 @@ async function fixture(rows: Row[]) {
 }
 
 function insertRow(ctx: MutationCtx, row: Row) {
-  const { daysAgo, ...fields } = row;
+  const { daysAgo, at, ...fields } = row;
   // Program-tagged rows are visible when they concern a visible record or
   // aircraft; the program itself is one such record.
   return ctx.db.insert("audit", {
@@ -107,7 +116,7 @@ function insertRow(ctx: MutationCtx, row: Row) {
     entityUuid: row.programUuid ?? PROGRAM,
     programUuid: PROGRAM,
     ...fields,
-    at: NOW - daysAgo * DAY_MS,
+    at: at ?? NOW - daysAgo * DAY_MS,
   });
 }
 
@@ -182,19 +191,25 @@ it("refuses readers, outsiders and bad periods", async () => {
   ).rejects.toThrow("Choose a start and end date.");
 });
 
-it("says when the scan budget cut the period short", async () => {
+it("says when the scan budget cut the period short, and counts the newest 4,000 rows it read", async () => {
   const rows: Row[] = [];
-  // Rows past the 4,000-entry budget, all inside the period.
+  // Rows past the 4,000-entry budget, all inside the period, created in
+  // this order: the first 100 are the oldest.
   for (let i = 0; i < 4100; i++)
-    rows.push({ action: "flight.save", daysAgo: 0 });
+    rows.push({
+      action: "flight.save",
+      daysAgo: 0,
+      actorId: i < 100 ? "earliest" : "alex",
+    });
   const { admin } = await fixture(rows);
   const result = await admin.query(api.auditHistory.summary, {
     programUuid: PROGRAM,
     ...WEEK,
   });
   expect(result.truncated).toBe(true);
-  expect(result.summary.total).toBeGreaterThan(0);
-  expect(result.summary.total).toBeLessThan(4100);
+  expect(result.summary.actors.map((x) => [x.actorId, x.total])).toEqual([
+    ["alex", 4000],
+  ]);
 }, 60_000);
 
 // A New York reviewer's day: midnight there is 05:00 UTC in November.
@@ -241,6 +256,22 @@ it("refuses day bounds that are not the dates' midnights in some time zone", asy
         ...bounds,
       }),
     ).rejects.toThrow("Choose a start and end date.");
+});
+
+// Each bound is within 14 hours of its UTC midnight, as the check allows, but
+// the start lies after the end.
+it("Characterizes current behaviour: counts nothing for a one-day period whose bounds cross", async () => {
+  const { admin } = await fixture([{ action: "flight.created", daysAgo: 0 }]);
+  const midnight = Date.parse(TODAY + "T00:00:00Z");
+  const result = await admin.query(api.auditHistory.summary, {
+    programUuid: PROGRAM,
+    from: TODAY,
+    to: TODAY,
+    fromMs: midnight + 13 * HOUR_MS,
+    toMs: midnight + DAY_MS - 13 * HOUR_MS,
+  });
+  expect(result.summary.total).toBe(0);
+  expect(result.truncated).toBe(false);
 });
 
 it("counts refused sign-ins for a system administrator in Unassigned records only", async () => {
@@ -305,6 +336,31 @@ it("counts rows about the program's purchase orders, requests and cost records, 
   expect(result.truncated).toBe(false);
 });
 
+it("stops once it has read 3 MiB, counting the newest rows, and reads at most 4 MiB when the rows are large", async () => {
+  const notes = "Torque values recorded. ".repeat(LARGE_ROW_REPEATS);
+  // 9 MB of rows inside the period, created in this order.
+  const rows: Row[] = Array.from({ length: 300 }, (_, i) => ({
+    action: "taskCard.save",
+    daysAgo: 0,
+    actorId: i < 100 ? "earliest" : "alex",
+    after: JSON.stringify({ notes }),
+  }));
+  const { t, adminSubject } = await fixture(rows);
+  const args = { programUuid: PROGRAM, ...WEEK };
+  const { result, bytes } = await t
+    .withIdentity({ subject: adminSubject })
+    .query(async (ctx) => {
+      const handler = (summary as unknown as SummaryHandler)._handler;
+      const result = await handler(ctx, args);
+      const { bytesRead } = await ctx.meta.getTransactionMetrics();
+      return { result, bytes: bytesRead.used };
+    });
+  expect(result.truncated).toBe(true);
+  expect(result.summary.actors.map((x) => x.actorId)).toEqual(["alex"]);
+  expect(bytes).toBeGreaterThanOrEqual(3 * MIB);
+  expect(bytes).toBeLessThanOrEqual(4 * MIB);
+}, 60_000);
+
 it("says the period was cut short when its rows name more records than it looks up", async () => {
   // Each row names a record of its own that the program does not hold.
   const named = (count: number) =>
@@ -323,6 +379,191 @@ it("says the period was cut short when its rows name more records than it looks 
     (await past.admin.query(api.auditHistory.summary, ask)).truncated,
   ).toBe(true);
 });
+
+// An aircraft's rows from before it joined the program carry the program
+// that wrote them (one sorting before this program's uuid, one after), or
+// none; a transfer lists rows no index of the program reaches; the program's
+// rows stay on an aircraft that left (ADR-0005).
+it("counts each row of the program once, whichever index reaches it, and none of another program's aircraft", async () => {
+  const [ours, second, third] = demoSnapshot().aircraft;
+  const { admin } = await fixtureOverTime([
+    {
+      action: "flight.dispatch_override",
+      daysAgo: 1,
+      aircraftUuid: ours.uuid,
+      reason: "Positioning flight approved by the chief pilot",
+    },
+    {
+      action: "taskCard.save",
+      daysAgo: 2,
+      aircraftUuid: ours.uuid,
+      programUuid: "foreign",
+      entityUuid: "card-1",
+      actorId: "sam",
+      reason: "Corrected the torque value",
+    },
+    {
+      action: "inspection.completed",
+      daysAgo: 3,
+      aircraftUuid: second.uuid,
+      programUuid: undefined,
+      entityUuid: "inspection-1",
+    },
+    {
+      action: "ad.complied",
+      daysAgo: 3,
+      aircraftUuid: third.uuid,
+      programUuid: "another-program",
+      entityUuid: "ad-1",
+    },
+    {
+      action: "location.saved",
+      daysAgo: 4,
+      programUuid: "foreign",
+      entityUuid: STORES_BAY,
+      reason: "Renamed before the transfer",
+      listedFor: PROGRAM,
+    },
+    {
+      action: "cost.settings.laborRate",
+      daysAgo: 5,
+      aircraftUuid: THEIR_AIRCRAFT,
+      entityUuid: "rate-1",
+    },
+    {
+      action: "taskCard.save",
+      daysAgo: 1,
+      aircraftUuid: THEIR_AIRCRAFT,
+      entityUuid: "their-card",
+    },
+    {
+      action: "flight.created",
+      daysAgo: 1,
+      aircraftUuid: THEIR_AIRCRAFT,
+      programUuid: "foreign",
+      entityUuid: "their-flight",
+    },
+    { action: "flight.created", daysAgo: 8, aircraftUuid: ours.uuid },
+  ]);
+  const { summary, truncated } = await admin.query(api.auditHistory.summary, {
+    programUuid: PROGRAM,
+    ...WEEK,
+  });
+  expect(truncated).toBe(false);
+  expect(summary.total).toBe(6);
+  expect(summary.actors.map((x) => [x.actorId, x.total])).toEqual([
+    ["alex", 5],
+    ["sam", 1],
+  ]);
+  expect(summary.families).toEqual({
+    flights: 1,
+    maintenance: 1,
+    ads: 1,
+    workOrders: 1,
+    parts: 1,
+    access: 0,
+    faa: 0,
+    other: 1,
+  });
+  expect(summary.notable.map((n) => [n.kind, n.entityUuid])).toEqual([
+    ["dispatch-override", PROGRAM],
+    ["correction", "card-1"],
+    ["correction", STORES_BAY],
+  ]);
+});
+
+it("counts the rows created from the period's first midnight up to the midnight after its last day", async () => {
+  const fromMs = Date.parse(WEEK.from + "T00:00:00Z");
+  const toMs = Date.parse(TODAY + "T00:00:00Z") + DAY_MS;
+  const row = (at: number, actorId: string): TimedRow => ({
+    action: "flight.created",
+    daysAgo: 0,
+    at,
+    actorId,
+  });
+  const { admin } = await fixtureOverTime([
+    row(fromMs - MINUTE_MS, "before"),
+    row(fromMs, "first"),
+    row(toMs - MINUTE_MS, "last"),
+    row(toMs, "after"),
+  ]);
+  const { summary } = await admin.query(api.auditHistory.summary, {
+    programUuid: PROGRAM,
+    ...WEEK,
+    fromMs,
+    toMs,
+  });
+  expect(summary.actors.map((x) => x.actorId)).toEqual(["first", "last"]);
+});
+
+const MINUTE_MS = 60_000;
+const MIB = 1024 * 1024;
+// About 30 KB of notes a row: a page of 25 such rows is 0.75 MB.
+const LARGE_ROW_REPEATS = 1250;
+
+// Convex keeps a registered function's handler on `_handler`; calling it
+// inside a test query is the only way to read that query's reads after it.
+type SummaryHandler = {
+  _handler: (ctx: QueryCtx, args: object) => Promise<AuditSummaryResult>;
+};
+const STORES_BAY = "stores-bay";
+const THEIR_AIRCRAFT = "foreign-aircraft";
+
+/** A row created at its own `at`; `listedFor` lists it as a transfer does. */
+type TimedRow = Row & { listedFor?: string };
+
+// The fixture, with the program's labor rate, a location and another
+// program's aircraft, and each row created in a transaction of its own at its
+// `at`, as the app writes them, so the scan by creation time meets it there.
+async function fixtureOverTime(rows: TimedRow[]) {
+  const timeOf = (r: Row) => r.at ?? NOW - r.daysAgo * DAY_MS;
+  // convex-test never dates a row before an earlier one, so the rest comes
+  // first.
+  vi.useFakeTimers({ now: NOW - 30 * DAY_MS, toFake: ["Date"] });
+  const seeded = await fixture([]);
+  await seeded.t.run(insertProgramRecords);
+  const oldestFirst = [...rows].sort((a, b) => timeOf(a) - timeOf(b));
+  for (const { listedFor, ...row } of oldestFirst) {
+    vi.setSystemTime(timeOf(row));
+    await seeded.t.run(async (ctx) => {
+      const auditId = await insertRow(ctx, row);
+      if (!listedFor) return;
+      const listed = await ctx.db.get(auditId);
+      await ctx.db.insert("transferredAudit", {
+        programUuid: listedFor,
+        auditId,
+        auditCreationTime: listed!._creationTime,
+      });
+    });
+  }
+  vi.useRealTimers();
+  return seeded;
+}
+
+async function insertProgramRecords(ctx: MutationCtx) {
+  await insertRecord(ctx, laborRate("rate-1", PROGRAM));
+  await ctx.db.insert(
+    "management",
+    encode(
+      "management",
+      recordSchema.parse({
+        uuid: STORES_BAY,
+        version: 1,
+        programUuid: PROGRAM,
+        kind: "location",
+        name: "Stores bay",
+        address: "Hangar 4",
+        contact: "stores@example.test",
+      }),
+    ),
+  );
+  await ctx.db.insert("aircraft", {
+    ...demoSnapshot().aircraft[0],
+    uuid: THEIR_AIRCRAFT,
+    registration: "N900FX",
+    programUuid: "foreign",
+  });
+}
 
 type ProgramRecord =
   | { table: "purchaseOrders"; uuid: string; record: PurchaseOrder }

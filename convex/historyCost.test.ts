@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins what the workspace snapshot and the saves that once
- *   loaded whole history read at one, two and three fleet-years.
+ *   loaded whole history read at one, two and three fleet-years, and what
+ *   the Weekly summary reads over a week, a month and a year.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex (operations, historyWindow, programContext, schema,
- *   migrations), tests/fixtures (programVolume, volumeSaves), src/domain
- *   (programs).
+ * Dependencies: convex (operations, auditHistory, historyWindow,
+ *   programContext, schema, migrations), tests/fixtures (programVolume,
+ *   volumeSaves), src/domain (programs).
  *
  * The counts are convex-test's transaction metrics: documents and bytes read
  * as Convex counts them against its 16 MiB limit, and index ranges against
@@ -18,11 +19,16 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { QueryCtx } from "./_generated/server";
 import schema from "./schema";
 import { snapshot } from "./operations";
-import { internal } from "./_generated/api";
+import { summary } from "./auditHistory";
+import { api, internal } from "./_generated/api";
 import { windowedHistory } from "./historyWindow";
 import { context } from "./programContext";
 import { activeProgram } from "../src/domain/programs";
-import { seedProgramVolume } from "../tests/fixtures/programVolume";
+import {
+  seedProgramVolume,
+  seedProgramVolumeOverTime,
+  VOLUME_PROGRAM,
+} from "../tests/fixtures/programVolume";
 import {
   findVolumeTargets,
   volumeOperations,
@@ -44,6 +50,19 @@ const FLAT = 1.1;
 // The plan's headroom on Convex's 4,096 index ranges a function may read
 // (ADR-0013): a quarter of the limit.
 const INDEX_RANGE_BAR = 1000;
+// The plan's bar on bytes a function reads (ADR-0013): a quarter of Convex's
+// 16 MiB.
+const READ_BAR_BYTES = 4 * 1024 * 1024;
+// The Weekly summary reads the change log by creation time, so it is measured
+// on databases whose rows are created at their own time, over periods ending
+// the day before seeding; a year reaches the summary's cut at this volume.
+const SUMMARY_YEARS = [1, 3] as const;
+const SUMMARY_TO = "2026-11-02";
+const SUMMARY_FROM = {
+  "7d": "2026-10-27",
+  "31d": "2026-10-03",
+  "365d": "2025-11-03",
+} as const;
 
 // Every parts-request and purchase-order command the fixture measures.
 const PURCHASING_COMMANDS = [
@@ -64,10 +83,12 @@ type Reads = { documents: number; bytes: number; indexRanges: number };
 type Handler<C> = (ctx: C, args: object) => Promise<unknown>;
 
 const reads = new Map<string, Record<string, Reads>>();
+const cutShort = new Map<string, boolean>();
 
 beforeAll(async () => {
   vi.useFakeTimers({ now: SEEDED_AT });
   for (const years of YEARS) await measureYear(years);
+  for (const years of SUMMARY_YEARS) await measureSummaries(years);
 }, SEED_TIMEOUT_MS);
 
 afterAll(() => vi.useRealTimers());
@@ -109,6 +130,37 @@ describe("the bounded saves read the same at three years as at one (S3)", () => 
     "auditHistory.weeklySummary",
     "history.costReport",
   ])("%s", (operation) => expectFlat(operation));
+});
+
+describe("the Weekly summary", () => {
+  it.each(SUMMARY_YEARS)(
+    "is not cut short over a week or a month at %i fleet-years",
+    (years) => {
+      expect(cutShort.get(`auditHistory.summary.7d.${years}`)).toBe(false);
+      expect(cutShort.get(`auditHistory.summary.31d.${years}`)).toBe(false);
+    },
+  );
+
+  // So the year's reads are those of a period cut short.
+  it.each(SUMMARY_YEARS)(
+    "is cut short over a year at %i fleet-years",
+    (years) =>
+      expect(cutShort.get(`auditHistory.summary.365d.${years}`)).toBe(true),
+  );
+
+  it.each(Object.keys(SUMMARY_FROM))(
+    "reads at most 4 MiB and a quarter of the index ranges over %s, the same at three fleet-years as at one",
+    (days) => {
+      const [one, three] = SUMMARY_YEARS.map(
+        (years) => reads.get(`auditHistory.summary.${days}`)![years],
+      );
+      for (const { bytes, indexRanges } of [one, three]) {
+        expect(bytes).toBeLessThanOrEqual(READ_BAR_BYTES);
+        expect(indexRanges).toBeLessThanOrEqual(INDEX_RANGE_BAR);
+      }
+      expect(three.bytes).toBeLessThanOrEqual(one.bytes * FLAT);
+    },
+  );
 });
 
 // They read the requests and orders a command names, by uuid or lookup key
@@ -154,6 +206,31 @@ async function measureYear(years: number) {
   for (const operation of volumeOperations(targets))
     await measure(t, years, accounts.admin, operation);
   record("snapshot.window", years, await windowReads(t, accounts.admin));
+}
+
+async function measureSummaries(years: number) {
+  const t = convexTest(schema, modules);
+  const { accounts } = await seedProgramVolumeOverTime(
+    t,
+    SEEDED_AT,
+    years,
+    (ms) => vi.setSystemTime(ms),
+  );
+  await t.action(internal.migrations.backfillHistoryColumns, {});
+  for (const [days, from] of Object.entries(SUMMARY_FROM)) {
+    const name = `auditHistory.summary.${days}`;
+    const args = { programUuid: VOLUME_PROGRAM, from, to: SUMMARY_TO };
+    await measure(t, years, accounts.admin, {
+      name,
+      kind: "query",
+      fn: summary,
+      args,
+    });
+    const result = await t
+      .withIdentity({ subject: accounts.admin })
+      .query(api.auditHistory.summary, args);
+    cutShort.set(`${name}.${years}`, result.truncated);
+  }
 }
 
 // The administrator's windowed history alone, without the collections that

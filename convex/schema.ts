@@ -846,7 +846,10 @@ export default defineSchema({
   })
     .index("aircraft", ["aircraftUuid"])
     .index("program", ["programUuid"])
-    .index("entity", ["entityUuid"]),
+    .index("entity", ["entityUuid"])
+    // Whether an aircraft holds rows another program wrote, or none did: the
+    // only rows of it the program's own index misses (the Weekly summary).
+    .index("aircraftProgram", ["aircraftUuid", "programUuid"]),
   // Change-log rows about records transferred into a program that its own
   // program and aircraft indexes would not reach. Transfers never re-tag audit
   // rows (ADR-0005); this lists them so the program's History feed includes
