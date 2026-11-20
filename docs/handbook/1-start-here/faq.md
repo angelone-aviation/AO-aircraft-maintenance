@@ -1,6 +1,8 @@
 # Technical FAQ
 
-Questions Aaron and the program ask about running Angel One. Questions from pilots and mechanics about using it are in the user guide, [Using the app](../../wiki/Home.md).
+[Handbook](../README.md)
+
+Questions Aaron and the program ask about running Angel One. Questions from pilots and mechanics about using it are in the user guide: its [FAQ](../../wiki/FAQ.md) and [Troubleshooting](../../wiki/Troubleshooting.md).
 
 ## Records
 
@@ -28,7 +30,7 @@ Deploy only moves production forward. When two merges land close together, the o
 Screens: roll the website back in Cloudflare, instantly. Data or functions: Convex can't roll back, so revert the commit on `main` and let Deploy release the revert ([operations](../3-running-it/operations.md#rolling-back)).
 
 **Do I need to run anything after a deploy?**
-Normally no. A release that needs a one-off command names it in its pull request and in the README ([README](../../../README.md#one-off-steps-for-deployments-with-older-data)). After any restore, run the four history migrations ([operations](../3-running-it/operations.md#after-a-release-or-a-restore-the-migrations)).
+Normally no. A release that needs a one-off command names it in its pull request and in the README ([README](../../../README.md#one-off-steps-for-deployments-with-older-data)). After a release that adds derived columns or keys, and after any restore, run the three history migrations until each returns `missing: 0`, then `reconcileCostLedger` until it returns `differing: 0` ([operations](../3-running-it/operations.md#after-a-release-or-a-restore-the-migrations)).
 
 **Deploy refused because of the Content-Security-Policy. Why?**
 The Convex URL (or a Sentry host, if Sentry is ever switched on) is not allowed by `public/_headers`. It stops before anything changes in production ([release runbook](../../runbooks/release.md#security-headers)).
@@ -36,21 +38,21 @@ The Convex URL (or a Sentry host, if Sentry is ever switched on) is not allowed 
 ## Outages
 
 **What if Convex is down?**
-Nobody can sign in, load data or sync. Installed apps still open their copy: pilots keep logging flights and problem reports, which wait in the Sync center and send themselves later. Everything else waits. Check [Convex status](https://status.convex.dev) and Better Stack. If Convex lost the data, restore from the latest R2 backup ([backup runbook](../../runbooks/backup-restore.md#real-restore-production)).
+Nobody can sign in, load data or sync. Installed apps still open their copy: pilots keep logging flights and problem reports, which wait in the Sync center and send themselves later. Everything else waits. Check [Convex status](https://status.convex.dev) and Better Stack. If Convex lost the data, restore from a backup ([backup runbook](../../runbooks/backup-restore.md#real-restore-production)). Today that means Convex's own backups: the off-site copy in R2 is not running yet ([risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-are-not-running-yet)).
 
 **What if Cloudflare is down?**
 The website doesn't load for new visits. Installed apps open from their cache and still reach Convex, so they keep working.
 
 **What if GitHub is down?**
-No CI, no deploys, no nightly backup that night. Production keeps running.
+No CI, no deploys and no nightly backup while it is down. Production keeps running.
 
 **What if the nightly backup fails?**
-GitHub emails whoever last enabled the workflow, Better Stack alerts on the missed heartbeat, and system administrators get "Off-site backups" in the next digest. Running it again is always safe ([backup runbook](../../runbooks/backup-restore.md#when-a-nightly-run-fails)).
+It fails every night until its set-up is finished ([risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-are-not-running-yet)). After that, GitHub emails whoever last changed the workflow's schedule or re-enabled it, Better Stack alerts on the missed heartbeat (once the `BACKUP_HEARTBEAT_URL` secret is added), and system administrators with the daily digest on get "Off-site backups" in the next one. Running it again is always safe ([backup runbook](../../runbooks/backup-restore.md#when-a-nightly-run-fails)).
 
 ## People and access
 
 **How do I add an administrator?**
-In the app, a system administrator: Administration → Users → **Add user** or **Edit access**. Tick **Flight Program administrator** in a group for one program, or **Global administrator** for a system administrator ([Flight Program access](../../flight-program-access.md)). Convex dashboard access is different: it stays with Aaron alone ([ADR-0010](../../adr/0010-one-convex-administrator.md)).
+In the app, a system administrator: Administration → Users → **Add user** or **Edit access**. For one program, tick a group that is a Flight Program administrator group, such as **Program managers**. For a system administrator, tick **Global administrator (all aircraft and settings)** ([Flight Program access](../../flight-program-access.md)). Convex dashboard access is different: it stays with Aaron alone ([ADR-0010](../../adr/0010-one-convex-administrator.md)).
 
 **Someone is locked out.**
 Ten wrong passwords in an hour lock the account; it clears within the hour. A system administrator's **Reset password** clears it at once and ends their sessions ([accounts runbook](../../runbooks/accounts.md#a-user-is-locked-out-after-failed-sign-ins)).
@@ -59,7 +61,7 @@ Ten wrong passwords in an hour lock the account; it clears within the hour. A sy
 Use the break-glass account ([break-glass runbook](../../runbooks/break-glass-admin.md)). It is not set up yet.
 
 **Is there two-factor sign-in?**
-Not in the app; the sign-in library has none ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md), [risks](../4-money-and-risk/risks.md)).
+Not in the app; the sign-in library has none ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md), [risks R14](../4-money-and-risk/risks.md#r14-no-second-factor-2fa)).
 
 **What happens to a lost phone's data?**
 The copy is readable for seven days from sign-in if the phone is unlocked. Reset the user's password and remote-erase the phone ([incident runbook](../../runbooks/incident-response.md#lost-or-stolen-device)).
@@ -73,13 +75,13 @@ About **$25 a month** (Convex Pro) plus the domain, so about $311 a year, at tod
 The load test held 20 years of a six-aircraft fleet: every load and save succeeded except accepting a held flight from the oldest year. At that rate the main limit is about a hundred years away ([capacity and limits](../2-how-it-works/capacity-and-limits.md)). What wears out sooner is the software around it: the sign-in library, Node versions and keys need about one to two hours a quarter ([checklists](../3-running-it/checklists.md)).
 
 **What if Aaron is unavailable?**
-That is the biggest risk ([risks R3, R4](../4-money-and-risk/risks.md)). The break-glass account and the organisation's sealed credentials are planned but not set up yet; this handbook and the runbooks say what to do. Fill in the [accounts](../../runbooks/accounts.md) and [incident contacts](../../runbooks/incident-response.md#who-to-notify).
+That is the biggest risk ([risks R3](../4-money-and-risk/risks.md#r3-a-single-convex-administrator), [R4](../4-money-and-risk/risks.md#r4-a-single-maintainer)). The break-glass account and its sealed paper copy are planned but not set up yet ([break-glass runbook](../../runbooks/break-glass-admin.md)). While backups are unencrypted there is no backup key to hand over ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)): a successor needs the Convex account's recovery, the Cloudflare login and the GitHub organisation's owner role. This handbook and the runbooks say what to do. Fill in the [accounts](../../runbooks/accounts.md) and [incident contacts](../../runbooks/incident-response.md#who-to-notify).
 
 **Could we move off Convex?**
 Yes, but it is a rewrite of `convex/`. The business rules in `src/domain` and the exported data would carry over ([risks R6](../4-money-and-risk/risks.md#r6-vendor-lock-in-to-convex)).
 
 **Are the backups encrypted?**
-No ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)); they sit in a private, locked R2 bucket ([risks R2](../4-money-and-risk/risks.md#r2-unencrypted-backups)).
+No, unless the `BACKUP_AGE_PUBLIC_KEY` secret is set, and it is not ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)). The copies go to a private, locked R2 bucket ([risks R2](../4-money-and-risk/risks.md#r2-unencrypted-backups)).
 
 **Why is the repository public?**
 GitHub Actions and security features are free for public repositories. No secrets are in it; a scan checks every push ([risks R13](../4-money-and-risk/risks.md#r13-public-repository)).

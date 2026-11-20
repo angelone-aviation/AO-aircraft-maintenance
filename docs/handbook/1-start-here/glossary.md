@@ -1,5 +1,7 @@
 # Glossary
 
+[Handbook](../README.md)
+
 The words Angel One uses, and the words it avoids. This page is a copy of [GLOSSARY.md](../../../GLOSSARY.md) from its first section on, kept identical by a test: change both together. In the app, the **Glossary** page and term tips explain them in plain words ([reading and shortcuts](../../reading-and-shortcuts.md)).
 
 ## Access
@@ -15,7 +17,7 @@ The organization unit that owns aircraft, inventory locations, stock and members
 _Avoid_: tenant, organization, customer
 
 **Flight Program administrator**:
-A member whose group grants management of an entire Flight Program, its people included: they create its accounts, change members' access to it and edit its permission groups.
+A member whose group grants management of an entire Flight Program, its people included: they create its accounts, change members' access to it and edit its permission groups. The inventory and purchasing screens and their messages call the same role an "inventory administrator"; there is no separate inventory permission.
 
 **Membership**:
 A user's belonging to a Flight Program through at least one permission group.
@@ -51,10 +53,10 @@ The computed level of an aircraft, airworthy, due soon or grounded, together wit
 An administrator's decision on a held flight, opened with **Review** in the flight log: accept it, with corrections if needed, or reject it. Totals are not changed until then, and both decisions keep the original values in the change log.
 
 **Deferral**:
-Postponement of a discrepancy under a Minimum Equipment List (MEL) item and category, with placard text and a repair deadline counted from the day the defect was found, not the day it was deferred.
+Postponement of a discrepancy under a Minimum Equipment List (MEL) item and category, or as inoperative equipment under 14 CFR 91.213(d), with placard text. An MEL deferral has a repair deadline counted from the day the defect was found, not the day it was deferred; once that passes, the aircraft is grounded again.
 
 **Discrepancy**:
-A reported defect on an aircraft, open until resolved or deferred. A problem report raises one.
+A reported defect on an aircraft, open until resolved; a deferred one stays open. A problem report raises one.
 _Avoid_: squawk, issue, defect (in records)
 
 **Dispatch gate**:
@@ -132,14 +134,14 @@ A signer other than the person who performed the work, required where a step dem
 _Avoid_: RII (bare), second signer
 
 **Inspection**:
-A recurring or one-time maintenance requirement on an aircraft or one of its components, due by hours, cycles or calendar, with last-compliance values.
+A recurring or one-time maintenance requirement on an aircraft or one of its components, due by hours, cycles, landings or calendar, with last-compliance values.
 _Avoid_: schedule (bare), check
 
 **Inspection template**:
 A reusable definition of an inspection's headers and tasks, activated onto an aircraft to create inspections.
 
 **Job card**:
-The executable card where findings, actual work, parts used, evidence and signoffs are recorded (`TC-YYYY-NNNN`). A job card in a work order is the order's own copy of a job card template, and later template edits do not change it; a job card can also stand on its own.
+The executable card where findings, actual work, parts used, evidence and signoffs are recorded (`TC-YYYY-NNNN` when its number is left blank). A job card in a work order is the order's own copy of a job card template, and later template edits do not change it; a job card can also stand on its own.
 _Avoid_: task card
 
 **Job card template**:
@@ -253,7 +255,7 @@ _Avoid_: sandbox, test mode
 A summary of one imported engine-monitor file for an aircraft, compared against limits.
 
 **Expiring date**:
-A renewal a Flight Program or the deployment must not miss (insurance, registration, a service key, a client secret), with a warning window; it alerts from the window and when the date passes.
+A renewal a Flight Program or the deployment must not miss (insurance, registration, a service key, another secret), with a warning window; it alerts from the window and when the date passes.
 _Avoid_: reminder, expiry item, deadline
 
 **Owner portal**:
