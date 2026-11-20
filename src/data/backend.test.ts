@@ -76,6 +76,12 @@ const SPRUCE_LOGIN = {
   currency: "USD",
 };
 const PAGE_REQUEST = { entityUuid: "record-1", cursor: null, numItems: 25 };
+const HISTORY_REQUEST = {
+  aircraftUuid: "aircraft-1",
+  cursor: '[1,"u"]',
+  numItems: 25,
+};
+const FLIGHT_RANGE = { aircraftUuid: "aircraft-1", from: 1, to: 2 };
 const TRANSFER = {
   kind: "aircraft" as const,
   uuid: "aircraft-1",
@@ -828,6 +834,45 @@ const CASES: Case[] = [
     kind: "query",
     name: "auditHistory:summary",
     args: { from: "2026-11-03", to: "2026-11-09", programUuid: ACTIVE_PROGRAM },
+  },
+  ...(["flights", "discrepancies", "workOrders"] as const).map(
+    (kind): Case => ({
+      method: "historyPage",
+      call: (b) => b.historyPage({ kind, ...HISTORY_REQUEST }),
+      kind: "query",
+      name: `history:${kind}`,
+      args: { ...HISTORY_REQUEST, programUuid: ACTIVE_PROGRAM },
+    }),
+  ),
+  {
+    method: "historyPage",
+    call: (b) =>
+      b.historyPage({
+        kind: "flights",
+        status: "rejected",
+        ...HISTORY_REQUEST,
+      }),
+    kind: "query",
+    name: "history:flights",
+    args: {
+      status: "rejected",
+      ...HISTORY_REQUEST,
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
+    method: "workOrderHistory",
+    call: (b) => b.workOrderHistory("work-order-1"),
+    kind: "query",
+    name: "history:workOrder",
+    args: { uuid: "work-order-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "flightsInRange",
+    call: (b) => b.flightsInRange(FLIGHT_RANGE),
+    kind: "query",
+    name: "history:flightsInRange",
+    args: { ...FLIGHT_RANGE, programUuid: ACTIVE_PROGRAM },
   },
   {
     method: "alertReads",
