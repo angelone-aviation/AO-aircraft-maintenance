@@ -307,7 +307,7 @@ describe("SavedAddresses", () => {
 
 describe("for a member who is not an administrator (AC-7)", () => {
   // The server refuses their saves ("Flight Program administrator
-  // required."), so neither view offers a new address.
+  // required."), so neither view offers a way to save an address.
   beforeEach(() => {
     const technicians = {
       id: "technicians",
@@ -337,6 +337,44 @@ describe("for a member who is not an administrator (AC-7)", () => {
     loaded = { entries: [], locations: [] };
     expect(await mount(h(SavedAddresses))).toContain(
       "A Flight Program administrator adds them here or from a request or PO.",
+    );
+  });
+
+  it("the directory lists the addresses without Edit address", async () => {
+    const html = await mount(h(SavedAddresses));
+    expect(html).toContain("Forwarder");
+    expect(html).toContain("Not confirmed");
+    expect(html).not.toContain("Edit address");
+  });
+
+  it("the picker offers no review of the document's address, and says who confirms it", async () => {
+    const value = address({ addressName: "Dock 4", confirmed: false });
+    const html = await mount(picker({ value }));
+    expect(html).toContain("Dock 4 (saved on this document)");
+    expect(html).not.toContain("Review selected address");
+    expect(html).toContain(
+      "A Flight Program administrator must review and save this address to confirm it before the PO is issued.",
+    );
+  });
+
+  it("an incomplete location address says so instead of opening the address window", async () => {
+    const shop = picker({ inventoryLocationName: "Shop" });
+    await mount(shop);
+    choose("Use inventory location address?", "inventory");
+    const html = render(shop);
+    expect(html).not.toContain("Add new shipping address");
+    expect(html).toContain(
+      "This inventory location&#x27;s address is incomplete, and only a Flight Program administrator can complete it. Choose a saved address.",
+    );
+    expect(changed).toEqual([]);
+  });
+
+  it("a location without an address is not offered as one to add", async () => {
+    const missing = picker({ inventoryLocationName: "Hangar 9" });
+    await mount(missing);
+    choose("Use inventory location address?", "inventory");
+    expect(render(missing)).toContain(
+      "This inventory location&#x27;s address is unavailable. Choose a saved address.<",
     );
   });
 });
