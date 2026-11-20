@@ -1,5 +1,7 @@
 # Owner and board member guide
 
+[User guide](Home.md)
+
 Owners and board members get one read-only view. They cannot change any
 record. Every other request is refused with "Aircraft owner access is
 read-only." or "Board access is read-only."
@@ -21,14 +23,14 @@ theme. Your administrators change your name, email, password or access. The
 
 For each of your aircraft:
 
-| Section                 | Shows                                                              |
-| ----------------------- | ------------------------------------------------------------------ |
-| Header                  | Status (Airworthy, Due soon, Grounded or Setup incomplete) and why |
-| Totals                  | Total time, cycles, landings                                       |
-| Next due                | Inspections, component limits and ADs, with what remains           |
-| Open discrepancies      | Open problem reports and their deferrals                           |
-| Recently completed work | Completed work orders                                              |
-| Form 337 copies         | Major repair and alteration forms on file                          |
+| Section                 | Shows                                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Header                  | Status (Airworthy, Due soon, Grounded or Setup incomplete) and why                                                                   |
+| Totals                  | Total time, cycles, landings                                                                                                         |
+| Next due                | Inspections, component limits and ADs, with what remains. "Review" means the app cannot work a limit out yet; ask your administrator |
+| Open discrepancies      | Open problem reports and their deferrals                                                                                             |
+| Recently completed work | Completed work orders                                                                                                                |
+| Form 337 copies         | Major repair and alteration forms on file                                                                                            |
 
 Buttons:
 
@@ -46,7 +48,7 @@ The owner portal does not show flights, logbook photos or the change log.
 | Fleet status tiles      | Airworthy, Due soon, Setup incomplete, Grounded and Overdue items                                                            |
 | Aircraft                | Each aircraft's status, overdue and due-soon counts, open discrepancies, spend this quarter and this year against the budget |
 | Due in the next 30 days | Inspections, component limits and ADs, worst first, then soonest                                                             |
-| Off-site backup         | When the newest backup was made                                                                                              |
+| Off-site backup         | When the newest backup was made, or "No off-site backup has been recorded yet."                                              |
 
 **Download board summary (PDF)** saves the same summary to take to a meeting.
 

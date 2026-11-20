@@ -4,6 +4,7 @@
 
 - [What everyone needs to know](../handbook/1-start-here/must-know.md)
 - [Regular checklists](../handbook/3-running-it/checklists.md)
+- [Glossary](../handbook/1-start-here/glossary.md)
 
 **Roles**
 
@@ -49,3 +50,4 @@
 
 - [How the app works, costs, risks, changes](../handbook/README.md)
 - [Set up from scratch](../handbook/3-running-it/setup-from-scratch.md)
+- For developers: [How the code is structured](../handbook/6-for-developers/code-structure.md)

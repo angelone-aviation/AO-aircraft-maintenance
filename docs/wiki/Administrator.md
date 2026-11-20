@@ -1,5 +1,7 @@
 # Administrator guide
 
+[User guide](Home.md)
+
 There are two kinds of administrator.
 
 | Kind                         | Scope                                | Only they can                                                                                                                              |
@@ -47,6 +49,23 @@ opens with the fleet summary.
 - Program details, the labor rate and the program's expiring dates are in
   [Settings](Settings.md#flight-program).
 
+## Starting a new Flight Program
+
+1. A system administrator chooses **Add Flight Program** on **Flight
+   Programs**, then makes it the active program
+   ([switching](Administration.md#flight-programs-and-switching)).
+2. Check the six default groups the program starts with: Observers, Pilots,
+   Maintenance technicians, Program managers, Aircraft owners and Board
+   (read-only) ([permission groups](Administration.md#permission-groups)).
+3. Add the users and tick their groups
+   ([add a user](Administration.md#add-a-user)).
+4. Add each aircraft and load its history with **Set up an aircraft**
+   ([how](Administration.md#set-up-an-aircraft)).
+5. Enter the program's expiring dates, such as insurance and registration
+   ([Settings](Settings.md#flight-program)).
+6. Upload the manuals
+   ([Reference library](Reference-Library.md#upload-a-manual)).
+
 ## System administrators only
 
 - **Unassigned records** at the top of the Flight Program selector shows
@@ -55,13 +74,16 @@ opens with the fleet summary.
   locations between them ([how](Administration.md#transfer-records-between-programs)).
 - **Settings → System** holds the FAA API key, address lookup, deployment
   expiring dates and the off-site backup status ([Settings](Settings.md#system)).
-- How the system runs, its costs and its backups are in the
-  [handbook](../handbook/README.md).
+- How the system runs and its costs are in the
+  [handbook](../handbook/README.md); how backups work is under
+  [Backups and restore](../handbook/3-running-it/operations.md#backups-and-restore).
 
 ## Your regular checks
 
-See the "Daily", "Weekly" and "Monthly" sections of the
-[checklists](../handbook/3-running-it/checklists.md).
+See the ["Daily"](../handbook/3-running-it/checklists.md#daily),
+["Weekly"](../handbook/3-running-it/checklists.md#weekly) and
+["Monthly"](../handbook/3-running-it/checklists.md#monthly) sections of the
+checklists.
 
 1. Daily: **Flight log** filtered to **Needs review**; review each held
    flight.
@@ -70,4 +92,5 @@ See the "Daily", "Weekly" and "Monthly" sections of the
    problem reports piling up.
 4. Weekly: **Change history → Summary** for dispatch overrides, permission
    changes and corrections.
-5. Monthly: the paper check for each aircraft, and **Costs** against the budget.
+5. Monthly: the paper check for each aircraft, the expiring dates, and
+   **Costs** against the budget.

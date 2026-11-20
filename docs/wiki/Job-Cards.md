@@ -1,5 +1,7 @@
 # Job cards and sign-off
 
+[User guide](Home.md)
+
 A **job card** (`TC-YYYY-NNNN`) is where the work is recorded: findings,
 actual work, parts used, evidence and signoffs. Cards usually belong to a work
 order; a card can also stand alone. The screen is **Job cards** under
@@ -25,7 +27,8 @@ requirement or problem report, as reusable instructions, notes and required
 parts. It is never worked or signed.
 
 1. On the inspection, requirement or report, choose **Job card templates**.
-2. Create the template.
+2. Choose **Create job card template**, fill it in and **Save job card
+   template**.
 3. When its source is added to a work order, each template is copied into the
    order as a new job card.
 
@@ -41,12 +44,12 @@ Later template edits change future copies only.
    card**. A new card saves as a draft.
 3. Change **Task status** to **ready** or **in progress** and save again. The
    status is locked until the first save.
-4. Under **Execution**, enter the **Completion date** (today or earlier),
-   required for the technician and inspection signoffs and to complete the
-   card, and **Actual work performed** (optional). Save. Step signoffs need
-   no date.
-5. Record parts under **Parts used and component changes**: a **Non-stock
-   item**, or **Inventory stock** from a location.
+4. Under **Execution**, enter the **Completion date** and **Actual work
+   performed** (optional), then save. The date field reads "Required for
+   technician and inspection signoff — today or earlier. Completing without
+   one is refused."
+5. Record parts under **Parts used and component changes** with **Add part
+   used**: a **Non-stock item**, or **Inventory stock** from a location.
 6. Upload evidence (photos, documents or parts traceability; PDF, JPEG or PNG,
    up to 7 MiB). Save the draft first.
 7. Choose **Technician signoff**.
@@ -74,8 +77,21 @@ Ready or In progress and save again before signing."
 | Technician | Anyone with maintenance permission on the aircraft                                            | 14 CFR 43.3(d) lets supervised uncertificated people do the work |
 | Inspection | A different person, with an approved, numbered mechanic certificate issued on or before today | It is the approval under 14 CFR 43.7                             |
 
-A pilot certificate alone does not qualify. The inspection signoff comes after
-the technician signoff.
+A pilot certificate alone does not qualify. A card from draft to completed:
+
+```mermaid
+flowchart TD
+  A["New job card: saved as draft"] --> B["Task status set to ready or in progress, saved"]
+  B --> C["Completion date entered, saved"]
+  C --> D["Technician signoff"]
+  D --> E{"Inspection signoff required?"}
+  E -->|"yes"| F["Inspection signoff by a different person,<br/>with an approved mechanic certificate"]
+  E -->|"no"| G["Task status set to completed, saved"]
+  F --> G
+  D -.->|"content or evidence changed"| X["Signoffs cleared: sign again"]
+  F -.->|"content or evidence changed"| X
+  X --> D
+```
 
 A signoff the app would refuse is disabled, with the reason beside it:
 

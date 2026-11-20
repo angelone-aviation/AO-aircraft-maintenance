@@ -1,8 +1,22 @@
 # Pilot guide
 
+[User guide](Home.md)
+
 You log flights, report problems and read checklists and manuals. All of it
 works without a connection (manuals once kept on the device). See the
 [rules for flights](Flight-Log.md#rules) and [Offline](Offline.md).
+
+## Your first day
+
+1. Install the app on your phone
+   ([how](Home.md#install-it-on-a-phone)).
+2. Set a screen lock on the phone.
+3. Sign in once while connected; after that the app opens offline for seven
+   days at a time.
+4. In **Reference library**, choose **Keep on this device** on the manuals
+   you fly with ([how](Reference-Library.md#keep-on-this-device)).
+5. In **Settings → Alerts**, switch on **Alert this device**
+   ([Alerts](Alerts.md#email-and-device-alerts)).
 
 ## What you see
 
@@ -55,8 +69,8 @@ on the Flight log. See [Flight log](Flight-Log.md#start-flight-and-end-flight).
 
 ## Report a problem
 
-1. Open **Discrepancies** and choose **Report a problem**, or use **Report a
-   problem** on the aircraft card.
+1. Open **Discrepancies** (the **Report a problem** link on an aircraft card
+   goes there) and choose **Report a problem**.
 2. Choose the aircraft and describe what you observed.
 3. Tick **Aircraft not airworthy until resolved** if the aircraft must not
    fly. This grounds it.
@@ -75,7 +89,7 @@ See [Discrepancies](Discrepancies.md).
 ## Your regular checks
 
 See the "Daily" section of the
-[checklists](../handbook/3-running-it/checklists.md).
+[checklists](../handbook/3-running-it/checklists.md#daily).
 
 1. Before each flight: the aircraft reads **OK to fly**; the starting meters
    match the aircraft.

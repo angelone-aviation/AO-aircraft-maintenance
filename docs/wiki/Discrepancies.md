@@ -1,5 +1,7 @@
 # Discrepancies
 
+[User guide](Home.md)
+
 A **discrepancy** is a defect reported on an aircraft. It stays open until it
 is resolved or deferred. "Problem" is the act of reporting; "discrepancy" is
 the record. The screen is under **Fly**.
@@ -14,6 +16,30 @@ the record. The screen is under **Fly**.
 | **Open**, **All** | Open reports only, or every report                              |
 | Each row          | The problem, the aircraft, who reported it and when, its status |
 
+A report's status, and what moves it:
+
+```mermaid
+stateDiagram-v2
+  state "Open" as Open
+  state "Grounds aircraft" as Grounds
+  state "Deferred" as Deferred
+  state "Deferral expired" as Expired
+  state "Resolved" as Resolved
+  [*] --> Open: Report a problem
+  [*] --> Grounds: reported as not airworthy
+  Open --> Deferred: Defer (MEL / 91.213)
+  Grounds --> Deferred: Defer (MEL / 91.213)
+  Deferred --> Expired: MEL repair interval runs out
+  Open --> Resolved: Record resolution
+  Grounds --> Resolved: Record resolution
+  Deferred --> Resolved: Record resolution
+  Expired --> Resolved: Record resolution
+  Resolved --> [*]
+```
+
+**Grounds aircraft** and **Deferral expired** ground the aircraft; the other
+statuses do not. A work order holds the repair but never changes the status.
+
 ## Report a problem
 
 Anyone with "Report discrepancies" permission can report, online or offline.
@@ -26,10 +52,10 @@ Anyone with "Report discrepancies" permission can report, online or offline.
 
 A pilot can also report from the flight form's **Discrepancy** field.
 
-| Limit                                                                         | What happens                                                                                                                            |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 200 open reports, or about 500,000 characters of text, per member per program | "You have too many open problem reports. Ask an administrator to resolve or defer some of your open reports, then send this one again." |
-| Half that (100 reports or about 250,000 characters)                           | The program's administrators get an alert                                                                                               |
+| Limit                                                                                   | What happens                                                                                                                            |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 200 open reports, or 512 KiB of text (about 500,000 characters), per member per program | "You have too many open problem reports. Ask an administrator to resolve or defer some of your open reports, then send this one again." |
+| Half that (100 reports or 256 KiB)                                                      | The program's administrators get an alert                                                                                               |
 
 Deferred and resolved reports do not count.
 
@@ -46,7 +72,8 @@ Resolved reports are read-only.
 
 ## Defer a problem
 
-Same permission as resolving. Choose **Defer (MEL / 91.213)**.
+Same permission as resolving. Choose **Defer (MEL / 91.213)** on the report
+(under **More actions** on a phone).
 
 ![The defer form](images/defer.png)
 
@@ -54,7 +81,10 @@ Same permission as resolving. Choose **Defer (MEL / 91.213)**.
    **14 CFR 91.213(d) inoperative equipment**.
 2. Enter **Date the defect was found**. The repair interval counts from this
    day, not the day you defer.
-3. For an MEL item: the **MEL item number** and **Repair category**.
+3. For an MEL item: the **MEL item number** and **Repair category**, and for
+   category A the **Days allowed by the MEL**. For 91.213(d): tick the
+   confirmation that the equipment was determined not to be a hazard and is
+   removed or deactivated and placarded.
 4. Enter the **Placard text**.
 5. Choose **Record deferral**.
 
@@ -72,7 +102,8 @@ discrepancy ends the deferral.
 
 ## Other actions on a report
 
-Mechanics and administrators see these; the pilot view hides them.
+Mechanics and administrators see these (under **More actions** on a phone);
+the pilot view hides them.
 
 | Button                      | Does                                                                                       |
 | --------------------------- | ------------------------------------------------------------------------------------------ |
@@ -85,6 +116,7 @@ work is done.
 
 ## Load older
 
-The device holds every open report and those resolved or deferred in the last
-3 months. Under **All**, **Load older** fetches older resolved reports. It
-needs a connection. See [what the device keeps](Offline.md#what-the-device-keeps).
+The device holds every open report and those created, resolved or deferred in
+the last 3 months. Under **All**, **Load older** below the list fetches older
+resolved reports, and the count reads "in the last 3 months". It needs a
+connection. See [what the device keeps](Offline.md#what-the-device-keeps).

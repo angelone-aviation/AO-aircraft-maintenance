@@ -1,5 +1,7 @@
 # Planning and due items
 
+[User guide](Home.md)
+
 Three places show what falls due: the Overview's **Maintenance outlook**,
 **Planning** and the **Maintenance calendar** (both under **Maintain**). They
 change no records. Dates for hours, cycles and landings limits are estimates,
@@ -13,7 +15,7 @@ The rule for due soon and overdue is in
 ![Planning: counts and the projected workload](images/planning.png)
 
 Planning lists inspections, component requirements and AD actions across the
-fleet, by whichever limit comes first.
+fleet, week by week, by whichever limit comes first.
 
 | Control                   | Does                                                                     |
 | ------------------------- | ------------------------------------------------------------------------ |
@@ -39,6 +41,8 @@ shows its usage limits under **Insufficient data**, with what remains.
 
 A month of inspections, component requirements and AD actions on the day each
 falls due.
+
+![The Maintenance calendar, with Due by hours, no date beside the month](images/maintenance-calendar.png)
 
 | Item                        | Shown on                                          |
 | --------------------------- | ------------------------------------------------- |
