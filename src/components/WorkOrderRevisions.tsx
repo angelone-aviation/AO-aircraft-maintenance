@@ -92,7 +92,6 @@ function recordedWording(snapshot: Snapshot, order: WorkOrder) {
   );
 }
 
-// The final review cannot be revised; it is sent unchanged.
 function reviseCommand(order: WorkOrder, data: FormData): WorkOrderCommand {
   return {
     action: "revise",
@@ -103,7 +102,6 @@ function reviseCommand(order: WorkOrder, data: FormData): WorkOrderCommand {
       supervisor: value(data, "supervisor"),
       scope: value(data, "scope"),
       releaseOutcome: value(data, "releaseOutcome"),
-      finalReview: order.finalReview,
       workPerformed: value(data, "workPerformed"),
     },
   };
@@ -236,7 +234,6 @@ function RevisionEntry({ snapshot, order, revision }: EntryProps) {
         Work performed: {recordedWording(snapshot, previous)}
       </p>
       <p style={PRE_WRAP}>Release statement: {previous.releaseOutcome}</p>
-      <p style={PRE_WRAP}>Final review: {previous.finalReview}</p>
       {previous.status === "completed" && (
         <LogbookEntryButton order={previous} />
       )}

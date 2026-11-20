@@ -44,7 +44,6 @@ export function movementOrderCommand(
     status: "completed",
     completionDate: command.date,
     releaseOutcome: "Reviewed component movement",
-    finalReview: "Reviewed component identity and tracking",
   };
   order.tasks = [{ ...task, status: "completed", notes: command.reason }];
   order.componentWork = [

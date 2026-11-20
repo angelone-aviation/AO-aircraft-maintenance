@@ -129,7 +129,6 @@ function sampleOrder(props: SampleProps, a: Aircraft): WorkOrder {
     scope: field("scope", initial?.scope),
     priority: initial?.priority ?? "routine",
     releaseOutcome: props.releaseOutcome || "[release outcome]",
-    finalReview: field("finalReview", initial?.finalReview),
     aircraft: closingHeader(props, a, initial?.aircraft ?? openingReading(a)),
     componentReadings: headerComponents(props, a),
     componentWork: props.componentWork,

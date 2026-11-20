@@ -302,7 +302,6 @@ function workOrder(by: string, now: number) {
     status: "open",
     completionDate: "",
     releaseOutcome: "",
-    finalReview: "",
     recordedAt: now,
     createdBy: by,
     aircraft: {

@@ -157,7 +157,6 @@ export function workOrderEdit(w: WorkOrder): WorkOrderEdit {
     status: w.status,
     completionDate: w.completionDate,
     releaseOutcome: w.releaseOutcome,
-    finalReview: w.finalReview,
     tasks: w.tasks,
     componentWork: w.componentWork ?? [],
     componentUuids: w.componentReadings.map((c) => c.componentUuid),

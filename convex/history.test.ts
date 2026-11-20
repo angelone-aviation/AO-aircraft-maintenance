@@ -967,7 +967,6 @@ const ORDER_TEXT = {
   scope: "100-hour inspection.",
   priority: "routine",
   releaseOutcome: "Approved for return to service.",
-  finalReview: "",
   aircraft: {
     registration: "N1",
     make: "Cessna",

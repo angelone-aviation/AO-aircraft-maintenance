@@ -282,7 +282,6 @@ function openOrder(aircraftUuid: string) {
     status: "in-progress",
     completionDate: "",
     releaseOutcome: "",
-    finalReview: "",
     recordedAt: NOW - 400 * DAY,
     createdBy: "demo-admin",
     aircraft: {

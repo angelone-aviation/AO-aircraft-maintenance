@@ -62,7 +62,6 @@ function completedWorkOrder(uuid: string): WorkOrder {
     scope: "Annual inspection",
     supervisor: "Chief inspector",
     releaseOutcome: "Internal release note",
-    finalReview: "Internal review note",
     aircraft: {
       registration: "N206MA",
       make: "Cessna",

@@ -53,7 +53,6 @@ function closeWithOverhaul() {
         status: "completed",
         completionDate: "2026-10-02",
         releaseOutcome: "Reviewed",
-        finalReview: "Reviewed",
       },
       componentWork: [
         {

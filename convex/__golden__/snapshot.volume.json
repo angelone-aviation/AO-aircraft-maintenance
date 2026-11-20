@@ -1,18 +1,18 @@
 {
  "admin": {
-  "bytes": 5664482,
-  "sha256": "5032814b8e421765c088e0aa77cc2249770021597d927c7f73b7e2daa31ca2f0"
+  "bytes": 5662859,
+  "sha256": "b057672473a7826b1a65b357d4fed897dc4da32009c77ff8120ac99bf875d03e"
  },
  "pilot": {
-  "bytes": 1781128,
-  "sha256": "b4a542b7964c51f4f24381ba0b22b77a25aca8a41c76af109ad43eac6093df23"
+  "bytes": 1780594,
+  "sha256": "bb382d77b5db15b1af0613c8c4026d64449270e3a9cabafb65f29958a948e724"
  },
  "owner": {
-  "bytes": 102924,
-  "sha256": "e3ef1f0236c1b7847c767bb05f03e6c112b911497bd5de09b23bf8c73fef24f1"
+  "bytes": 102839,
+  "sha256": "47c2acf36e9a68defe0f107eadd62e3d9f6b13145ae1e41fff73633558cf86b6"
  },
  "board": {
-  "bytes": 599219,
-  "sha256": "d6c0a15b0cb0d247c4e255a4c1a2c830fb0190f45bf94ee3deac93836070f892"
+  "bytes": 598709,
+  "sha256": "440ad14b30cbea083a5d1cc6d70e8b602ec2485092da1e2957d7709c64e282f6"
  }
 }

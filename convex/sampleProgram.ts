@@ -539,7 +539,6 @@ async function insertWorkOrder(s: Seeding, a: Sample, task: WorkTask) {
     status: a.row.status,
     completionDate: "",
     releaseOutcome: "",
-    finalReview: "",
     recordedAt: s.now,
     createdBy: s.userId,
     aircraft: orderAircraft(a),

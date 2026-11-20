@@ -51,7 +51,6 @@ function setup(action: ComponentWork["action"] = "both") {
       status: "completed" as const,
       completionDate: "2026-10-02",
       releaseOutcome: "Reviewed",
-      finalReview: "Reviewed",
     },
     componentWork: [
       {

@@ -5,7 +5,7 @@
  *   search and merge rules are the domain's, and each run is charged to the
  *   FAA allowance.
  * Dependencies: convex (access, faaSearch, faaCredentials, faaDrs,
- *   programContext, recordsDate, userErrors), src/domain (faa,
+ *   programContext, recordsDate, urgentAlerts, userErrors), src/domain (faa,
  *   faaMonitoringSearch, airworthiness, management), zod.
  */
 import {
@@ -29,6 +29,7 @@ import { chargeFaaAllowance } from "./faaSearch";
 import { faaSecret } from "./faaCredentials";
 import { fetchMonitoringCandidates } from "./faaDrs";
 import { recordsDate } from "./recordsDate";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 import { exposeRejections } from "./userErrors";
 import {
   checkContext,
@@ -75,7 +76,8 @@ export const chargeRun = internalMutation({
 /**
  * Configures an aircraft's monitor, reviews one of its candidates, or starts a
  * check now, as runFaaCommand decides; writes its "faa.<kind>" row with the
- * command.
+ * command. Afterwards the program's urgent alerts are checked
+ * (convex/urgentAlerts.ts).
  *
  * @param payload - JSON, as `faaCommandSchema`.
  * @param programUuid - The caller's active Flight Program.
@@ -108,6 +110,10 @@ export const command = mutation({
     if (doc) await ctx.db.replace(doc._id, record);
     else await ctx.db.insert("faaMonitors", record);
     await writeAudit(ctx, entry);
+    // SE-15: reviewing a candidate changes what the AD alerts read, so every
+    // command checks at once. A candidate imported as an AD is saved by
+    // airworthiness.save, which schedules its own check.
+    await scheduleUrgentAlerts(ctx, args.programUuid);
   },
 });
 

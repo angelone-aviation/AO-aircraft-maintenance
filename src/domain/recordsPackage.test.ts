@@ -111,7 +111,6 @@ function completedOrder(s: Snapshot) {
         status: "completed",
         completionDate: "2026-06-02",
         releaseOutcome: "Approved for return to service.",
-        finalReview: "Reviewed",
       },
       tasks: [],
     },

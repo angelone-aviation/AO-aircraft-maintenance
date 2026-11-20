@@ -303,7 +303,6 @@ describe("work order form", () => {
         supervisor: "Sam",
         priority: "high",
         status: "open",
-        finalReview: "",
       }),
       completionReadings: undefined,
       componentUuids: [],

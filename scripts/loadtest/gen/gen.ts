@@ -550,12 +550,11 @@ function buildOrderStates(order: Order, tasks: Task[], o: FlightPoint, c: Flight
     priority: w % 9 === 0 ? "high" : "routine", recordedAt: opened, createdBy: MECH.id,
     aircraft: { ...reading(plane, o), meter: "hobbs" as const }, componentReadings: [],
   };
-  const openOrder = workOrderSchema.parse({ ...base, version: 1, status: "open", completionDate: "", releaseOutcome: "", finalReview: "", tasks: tasks.map((t) => ({ ...t, status: "requested", notes: "" })) });
+  const openOrder = workOrderSchema.parse({ ...base, version: 1, status: "open", completionDate: "", releaseOutcome: "", tasks: tasks.map((t) => ({ ...t, status: "requested", notes: "" })) });
   const working = workOrderSchema.parse({ ...openOrder, version: 4, status: "in-progress", tasks });
   const done = workOrderSchema.parse({
     ...working, version: 6, status: "completed", completionDate: date(closed),
     releaseOutcome: "Aircraft approved for return to service.",
-    finalReview: `Records reviewed by ${INSPECTOR.name} (IA).`,
     closeout: {
       recordedAt: closed,
       aircraft: reading(plane, c),

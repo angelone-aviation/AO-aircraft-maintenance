@@ -278,7 +278,6 @@ function fixture() {
     status: "open",
     completionDate: "",
     releaseOutcome: "",
-    finalReview: "",
     recordedAt: 0,
     createdBy: "admin",
     aircraft: {

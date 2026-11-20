@@ -397,7 +397,6 @@ const order = {
   status: "open",
   completionDate: "",
   releaseOutcome: "",
-  finalReview: "",
   componentReadings: [{ componentUuid: "c1" }],
   tasks: [
     {

@@ -136,6 +136,11 @@ export const WORK_ORDER_TEXT_MAX_LENGTH = TEXT_MAX_LENGTH;
  * The fields a user edits on a work order; `completionDate` stays "" until
  * the order is completed.
  *
+ * Orders and queued commands from before 2026-11-20 may carry a
+ * `finalReview` field, which never had an input. These schemas strip unknown
+ * keys, so it is dropped on read and never written again; making them strict
+ * would refuse those payloads.
+ *
  * @throws {z.ZodError} From `parse()` on an invalid field.
  */
 export const workOrderFieldsSchema = z.object({
@@ -148,7 +153,6 @@ export const workOrderFieldsSchema = z.object({
   status: z.enum(workOrderStatuses),
   completionDate: z.union([z.iso.date(), z.literal("")]),
   releaseOutcome: text,
-  finalReview: text,
 });
 
 const componentReadingSchema = z.object({
@@ -168,7 +172,6 @@ export const workOrderRevisionFieldsSchema = z.object({
   supervisor: text,
   scope: text,
   releaseOutcome: text,
-  finalReview: text,
   workPerformed: z.string().trim().max(WORK_PERFORMED_MAX_LENGTH),
 });
 
@@ -833,7 +836,6 @@ function assertRevisable(
     supervisor: existing.supervisor,
     scope: existing.scope,
     releaseOutcome: existing.releaseOutcome,
-    finalReview: existing.finalReview,
     workPerformed:
       existing.revisedWorkPerformed ??
       existing.closeout?.workPerformed ??

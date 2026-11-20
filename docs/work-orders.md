@@ -16,7 +16,7 @@ Track each task as requested, in progress, delayed for parts, completed or cance
 
 Upload maintenance records as PDF, JPEG or PNG attachments, up to 7 MiB each, after opening the order. Attachments remain available with closed orders.
 
-To complete an order, complete or cancel every task and supply a completion date, release outcome and final review. Confirm the completion aircraft total time, Hobbs, tach and cycles. Readings must fall between the opening snapshot and current totals; backdated closeout requires explicit readings. Completion cannot predate a completed job card.
+To complete an order, complete or cancel every task and supply a completion date and release outcome. Confirm the completion aircraft total time, Hobbs, tach and cycles. Readings must fall between the opening snapshot and current totals; backdated closeout requires explicit readings. Completion cannot predate a completed job card.
 
 Closeout saves an immutable snapshot of completion readings, serviced component identifiers and tracking totals, work performed, completing user and their saved license details. Inspection compliance and the closeout commit atomically. Routine intervals advance from the recorded compliance; existing absolute component limits stay fixed. Cancelled tasks are excluded. One-time inspections with no recurring interval follow the existing archive behavior. Component repair and overhaul counters reset only when explicitly selected in closeout. Lifetime usage, aircraft operational status and discrepancy resolution are not reset.
 

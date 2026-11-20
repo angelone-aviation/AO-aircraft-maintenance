@@ -672,7 +672,6 @@ const WORK_ORDER_STALE_SAVE: StaleSaveOptions<WorkOrderEdit> = {
     status: "Status",
     completionDate: "Completion date",
     releaseOutcome: "Release statement",
-    finalReview: "Final review",
     tasks: {
       label: "Requested work",
       item: (t, index) => `Task ${index + 1} (${t.description})`,
@@ -1188,7 +1187,6 @@ function readWorkOrderFields({ initial, draft }: FormProps, data: FormData) {
     status: draft.status,
     completionDate: value(data, "completionDate"),
     releaseOutcome: value(data, "releaseOutcome"),
-    finalReview: initial?.finalReview ?? "",
   });
 }
 

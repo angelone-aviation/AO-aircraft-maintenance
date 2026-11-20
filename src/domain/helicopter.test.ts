@@ -151,7 +151,6 @@ it("uses cyclic hours for installed components and freezes cyclic work-order com
       status: "completed" as const,
       completionDate: "2026-10-02",
       releaseOutcome: "Reviewed",
-      finalReview: "Reviewed",
     },
     componentWork: [
       {

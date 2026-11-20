@@ -3,7 +3,8 @@
  *   adding its rows to an aircraft's component setup list.
  * Layer: Server. Two public mutations through runCommand; the rules are the
  *   domain's saveComponentTemplate and applyComponentTemplate.
- * Dependencies: convex/runCommand, src/domain/componentTemplates.
+ * Dependencies: convex/runCommand, convex/urgentAlerts,
+ *   src/domain/componentTemplates.
  *
  * Both parse the payload inside the domain step: a refusal or a zod issue
  * shows its own text, and anything else (a malformed payload, a fault) shows
@@ -21,6 +22,7 @@ import {
   requestOf,
   requestUuidIn,
 } from "./runCommand";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 import {
   saveComponentTemplate,
   applyComponentTemplate,
@@ -75,7 +77,8 @@ export const save = mutation({
  * setup list, and writes the `component.setupImported` row
  * applyComponentTemplate records for each, in row order. A row already added
  * is skipped; no component is installed. A replayed request id changes
- * nothing.
+ * nothing. Afterwards the program's urgent alerts are checked
+ * (convex/urgentAlerts.ts).
  *
  * @param payload - JSON: `templateUuid`, the template `version` previewed,
  *   `aircraftUuid`, the `rowIds` to add and the request id.
@@ -88,8 +91,8 @@ export const save = mutation({
  */
 export const apply = mutation({
   args,
-  handler: (ctx, args) =>
-    runCommand(ctx, {
+  handler: async (ctx, args) => {
+    const added = await runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => args.payload,
       request: (payload) => requestOf(requestUuidIn(payload), payload),
@@ -106,5 +109,11 @@ export const apply = mutation({
         writeChanged(ctx, "componentSetups", docs.componentSetups, added),
       audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),
       returns: (added) => added.length,
-    }),
+    });
+    // SE-15: a command that changes what an aircraft tracks checks at once
+    // rather than leaving an urgent alert to the daily run. No alert rule
+    // reads setups yet, so today this sends only alerts already pending.
+    await scheduleUrgentAlerts(ctx, args.programUuid);
+    return added;
+  },
 });

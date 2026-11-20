@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins the FAA monitor's refusals and their class, the daily
- *   run's skips, and how a run that cannot be stored ends.
+ *   run's skips, how a run that cannot be stored ends, and the urgent-alert
+ *   check a command schedules.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/faa.ts, convex/schema.ts, src/domain/faa.ts,
  *   src/data/demo.ts (fixture).
@@ -277,7 +278,8 @@ it("stores what each command changes on the monitor, schedules a started check, 
   const scheduled = await t.run((ctx) =>
     ctx.db.system.query("_scheduled_functions").collect(),
   );
-  expect(scheduled.map((f) => [f.name, f.args])).toEqual([
+  const runs = scheduled.filter((f) => !f.name.includes("sendImmediate"));
+  expect(runs.map((f) => [f.name, f.args])).toEqual([
     [
       expect.stringContaining("check"),
       [{ aircraftUuid: uuid, runId: checked.runId }],
@@ -315,5 +317,26 @@ it("stores what each command changes on the monitor, schedules a started check, 
       uuid,
       JSON.stringify({ kind: "check", aircraftUuid: uuid }),
     ],
+  ]);
+});
+
+it("schedules the program's urgent-alert check after reviewing a candidate", async () => {
+  vi.useFakeTimers();
+  const { t, monitor, admin } = await fixture();
+  await monitor(aircraft.uuid, { candidates: [candidate("c1")] });
+  await admin.mutation(api.faa.command, {
+    payload: JSON.stringify({
+      kind: "review",
+      aircraftUuid: aircraft.uuid,
+      id: "c1",
+      reason: "Tracked as an AD.",
+    }),
+    programUuid,
+  });
+  const scheduled = await t.run((ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  );
+  expect(scheduled.map((f) => [f.name, f.args])).toEqual([
+    [expect.stringContaining("sendImmediate"), [{ programUuid }]],
   ]);
 });

@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins component templates on the server: program-scoped
  *   saving and its stored rows, setup entries added once without installing
- *   components, refusals shown with their message, and replayed request ids.
+ *   components, refusals shown with their message, replayed request ids, and
+ *   the urgent-alert check after applying.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/componentTemplates, convex/schema, src/data/demo
  *   (fixture).
@@ -243,4 +244,28 @@ it("saves and applies once per request id: a replay returns nothing and writes n
     JSON.stringify({ ...record, name: record.name, requestUuid }),
     apply.payload,
   ]);
+});
+
+it("schedules the program's urgent-alert check after applying a template", async () => {
+  const { t, a, client, record, save } = await setup();
+  await save(record);
+  const urgentChecks = async () =>
+    (
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      )
+    )
+      .filter((f) => f.name.includes("sendImmediate"))
+      .map((f) => f.args);
+  expect(await urgentChecks()).toEqual([]);
+  await client.mutation(api.componentTemplates.apply, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      templateUuid: record.uuid,
+      version: 1,
+      aircraftUuid: a.uuid,
+      rowIds: ["1"],
+    }),
+  });
+  expect(await urgentChecks()).toEqual([[{ programUuid: "demo-program" }]]);
 });

@@ -798,7 +798,6 @@ function order(name: string, overrides: Partial<WorkOrder> = {}): WorkOrder {
     status: "open",
     completionDate: "",
     releaseOutcome: "",
-    finalReview: "",
     recordedAt: LONG_AGO,
     createdBy: "admin",
     aircraft: {

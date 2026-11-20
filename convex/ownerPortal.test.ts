@@ -38,7 +38,6 @@ function completedOrder(): WorkOrder {
     status: "completed",
     completionDate: "2026-02-01",
     supervisor: "Chief inspector",
-    finalReview: "Internal review note",
     uuid: crypto.randomUUID(),
     version: 1,
     recordedAt: 1,

@@ -62,7 +62,6 @@ function close(
       status: "completed" as const,
       completionDate: "2026-10-02",
       releaseOutcome: "Work reviewed; disposition recorded by certifier.",
-      finalReview: "Reviewed",
     },
     tasks: order.tasks.map((t) => ({ ...t, status: "completed" as const })),
   };
