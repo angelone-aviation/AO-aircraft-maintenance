@@ -81,6 +81,11 @@ const HISTORY_REQUEST = {
   cursor: '[1,"u"]',
   numItems: 25,
 };
+const RECORD_LOOKUP = {
+  discrepancyUuids: ["report-1"],
+  taskCardUuids: ["card-1"],
+  flightPlanUuids: ["plan-1"],
+};
 const FLIGHT_RANGE = { aircraftUuid: "aircraft-1", from: 1, to: 2 };
 const COST_RANGE = {
   aircraftUuid: "aircraft-1",
@@ -878,6 +883,13 @@ const CASES: Case[] = [
     kind: "query",
     name: "history:flightsInRange",
     args: { ...FLIGHT_RANGE, programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "historyRecords",
+    call: (b) => b.historyRecords(RECORD_LOOKUP),
+    kind: "query",
+    name: "history:records",
+    args: { ...RECORD_LOOKUP, programUuid: ACTIVE_PROGRAM },
   },
   {
     method: "costReport",

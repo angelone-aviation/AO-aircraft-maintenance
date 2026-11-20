@@ -1,8 +1,8 @@
 /**
  * Responsibility: The history queries: the flights, problem reports and work
  *   orders the workspace's window leaves out, one work order with everything
- *   on it, one aircraft's flights over a span, and its cost report from the
- *   cost ledger.
+ *   on it, records named by uuid, one aircraft's flights over a span, and
+ *   its cost report from the cost ledger.
  * Layer: Server. Public Convex queries; the window, order and scoping rules
  *   come from src/domain.
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
@@ -26,7 +26,14 @@ import { decode, decodeFlight } from "./collections";
 import { ReadBudget, scanHistory, type ReadAfter } from "./historyScan";
 import { exposeRejections } from "./userErrors";
 import { ledgerRowsOf } from "./costLedger";
-import { budgetAndSettingsDocs, workOrderDocsByUuid } from "./workingSet";
+import {
+  archivedCardDocsByUuid,
+  budgetAndSettingsDocs,
+  discrepancyDocsByUuid,
+  inLoadOrder,
+  taskCardDocsByUuid,
+  workOrderDocsByUuid,
+} from "./workingSet";
 import { ledgerCostReport } from "../src/domain/costs/ledger";
 import { periodFor } from "../src/domain/costs/period";
 import {
@@ -55,10 +62,13 @@ import {
 } from "../src/domain/retention";
 import {
   assertFlightRange,
+  assertRecordLookup,
   flightRange,
+  lookupRecords,
   MAX_RANGE_FLIGHTS,
   workOrderHistory,
   type FlightRange,
+  type FoundRecords,
   type WorkOrderHistory,
 } from "../src/domain/historyReads";
 import { activeProgram, scopedSnapshot } from "../src/domain/programs";
@@ -259,6 +269,52 @@ export const workOrder = query({
     return exposeRejections(() =>
       workOrderHistory(scopedSnapshot({ ...state, ...records }), args.uuid),
     );
+  },
+});
+
+/**
+ * Records a screen names by uuid, inside the window or not: problem reports
+ * and job cards a form links to, and the flights logged against plans, which
+ * no list pages on their own.
+ *
+ * @param discrepancyUuids - Problem reports.
+ * @param taskCardUuids - Job cards, live or archived.
+ * @param flightPlanUuids - Flight plans whose flights are wanted.
+ * @returns As lookupRecords: what the caller may read of them, redacted as
+ *   the workspace redacts it, with the members the reports and flights name.
+ *   A record on an aircraft the caller may not read is left out, as one that
+ *   does not exist.
+ * @throws {ConvexError} "Ask for at most 100 records at a time."
+ * @throws As `checkContext`, first.
+ */
+export const records = query({
+  args: {
+    programUuid: v.optional(v.string()),
+    discrepancyUuids: v.array(v.string()),
+    taskCardUuids: v.array(v.string()),
+    flightPlanUuids: v.array(v.string()),
+  },
+  handler: async (ctx, args): Promise<FoundRecords> => {
+    const state = await checkContext(ctx, args.programUuid);
+    exposeRejections(() => assertRecordLookup(args));
+    const fleet = [...readableAircraft(state)].map((uuid) => ({ uuid }));
+    const [discrepancies, cards, archived, planned] = await Promise.all([
+      discrepancyDocsByUuid(ctx, args.discrepancyUuids, fleet),
+      taskCardDocsByUuid(ctx, args.taskCardUuids, fleet),
+      archivedCardDocsByUuid(ctx, args.taskCardUuids, fleet),
+      planFlightDocs(ctx, args.flightPlanUuids, fleet),
+    ]);
+    const flights = planned.map(decodeFlight);
+    const members = await readNamedMembers(ctx, { flights, discrepancies });
+    const scoped = scopedSnapshot({
+      ...state,
+      discrepancies,
+      flights,
+      members,
+      taskCards: decode("taskCards", cards),
+      archivedTaskCards: decode("archivedTaskCards", archived),
+    });
+    return exposeRejections(() => lookupRecords(scoped, args));
   },
 });
 
@@ -668,6 +724,26 @@ async function readOrderRecords(
       requests.filter((r) => r.programUuid === activeProgram(state)),
     ),
   };
+}
+
+// The flights logged against plans, on the readable aircraft, in the
+// workspace's order.
+async function planFlightDocs(
+  ctx: QueryCtx,
+  planUuids: string[],
+  fleet: { uuid: string }[],
+): Promise<Doc<"flights">[]> {
+  const readable = new Set(fleet.map((a) => a.uuid));
+  const rows = await Promise.all(
+    [...new Set(planUuids)].filter(Boolean).map((uuid) =>
+      ctx.db
+        .query("flights")
+        .withIndex("plan", (q) => q.eq("flightPlanUuid", uuid))
+        .collect(),
+    ),
+  );
+  const onFleet = rows.flat().filter((f) => readable.has(f.aircraftUuid));
+  return inLoadOrder(onFleet, fleet);
 }
 
 // Listed as the workspace lists evidence: no storage id, oldest first.

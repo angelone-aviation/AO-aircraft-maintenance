@@ -1,7 +1,7 @@
 /**
  * Responsibility: The demo's workspace view of its full fictional snapshot,
  *   through the retention window, and its history reads: older pages, one
- *   work order, flights over a span and the cost report.
+ *   work order, records by uuid, flights over a span and the cost report.
  * Layer: Data. Browser only; no Convex server, no React.
  * Dependencies: ./backend (types), src/domain (retention, historyReads,
  *   costs/costReport, programs, model).
@@ -12,7 +12,11 @@
  */
 import type { Backend } from "./backend";
 import { historyPage, workspaceWindow } from "../domain/retention";
-import { flightRange, workOrderHistory } from "../domain/historyReads";
+import {
+  flightRange,
+  lookupRecords,
+  workOrderHistory,
+} from "../domain/historyReads";
 import { snapshotCostReport } from "../domain/costs/costReport";
 import { scopedSnapshot } from "../domain/programs";
 import type { Snapshot } from "../domain/model";
@@ -20,7 +24,11 @@ import type { Snapshot } from "../domain/model";
 /** The Backend members that read history beyond the workspace. */
 export type HistoryCalls = Pick<
   Backend,
-  "historyPage" | "workOrderHistory" | "flightsInRange" | "costReport"
+  | "historyPage"
+  | "workOrderHistory"
+  | "flightsInRange"
+  | "historyRecords"
+  | "costReport"
 >;
 
 /**
@@ -53,6 +61,8 @@ export function demoHistoryCalls(
     workOrderHistory: async (uuid) =>
       workOrderHistory(await readScoped(), uuid),
     flightsInRange: async (request) => flightRange(await readScoped(), request),
+    historyRecords: async (request) =>
+      lookupRecords(await readScoped(), request),
     costReport: async (request) =>
       snapshotCostReport(await readScoped(), request),
   };

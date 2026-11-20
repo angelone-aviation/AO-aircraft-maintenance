@@ -1,11 +1,11 @@
 /**
  * Responsibility: Pages a list's older history for a screen, loads one older
- *   work order on demand, and merges what is loaded with the workspace
- *   snapshot for the screen's records.
+ *   work order or records named by uuid on demand, and merges what is loaded
+ *   with the workspace snapshot for the screen's records.
  * Layer: Data. React hooks and a context over the workspace store and
  *   Backend; renders nothing.
- * Dependencies: react, ./store, ./errors, src/domain (retention,
- *   historyReads, model types).
+ * Dependencies: react, ./store, ./backend (types), ./errors, src/domain
+ *   (retention, historyReads, model types).
  *
  * Older records come only through Backend.historyPage and workOrderHistory,
  * which the server checks (ADR-0013). They are not reactive and live only in
@@ -19,10 +19,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { useWorkspace } from "./store";
+import type { Backend } from "./backend";
 import { errorText } from "./errors";
 import {
   emptyHistoryRecords,
@@ -33,7 +35,11 @@ import {
   type HistoryPageRequest,
   type HistoryRecords,
 } from "../domain/retention";
-import type { WorkOrderHistory } from "../domain/historyReads";
+import type {
+  FoundRecords,
+  RecordLookup,
+  WorkOrderHistory,
+} from "../domain/historyReads";
 import type { Flight, Member, Snapshot } from "../domain/model";
 
 /** One list of older history, with the filters the server applies. */
@@ -113,6 +119,17 @@ export interface LoadedWorkOrder {
   offline: boolean;
 }
 
+/** Records named by uuid loaded on demand, and their load state. */
+export interface LoadedRecords {
+  /** Undefined until loaded, or when they could not be. */
+  records?: FoundRecords;
+  loading: boolean;
+  /** Why they could not load, as the user should read it; "" otherwise. */
+  error: string;
+  /** No connection: they cannot load. */
+  offline: boolean;
+}
+
 /**
  * The records a screen shows: the workspace snapshot with the older records
  * it has loaded. Components under it read it through
@@ -131,7 +148,7 @@ export const NO_HISTORY: LoadedHistory = Object.freeze({
 });
 
 const LOAD_ERROR = "Could not load older records.";
-const NO_ITEM: LoadedItem = { item: "", mark: undefined, error: "" };
+const NO_ITEM: LoadedItem<never> = { item: "", mark: undefined, error: "" };
 const MERGED_COLLECTIONS = [
   "flights",
   "discrepancies",
@@ -144,11 +161,11 @@ const MERGED_COLLECTIONS = [
   "partsRequests",
 ] as const;
 type MergedCollection = (typeof MERGED_COLLECTIONS)[number];
-// What useWorkOrderHistory loaded, for which order and write mark.
-interface LoadedItem {
+// What an on-demand load fetched, for which item and write mark.
+interface LoadedItem<T> {
   item: string;
   mark: string | undefined;
-  history?: WorkOrderHistory;
+  value?: T;
   error: string;
 }
 type Keyed = { uuid: string };
@@ -227,31 +244,44 @@ export function useRecordsSnapshot(): Snapshot | null {
  *   server's answer for an order the user may not read.
  */
 export function useWorkOrderHistory(uuid: string | undefined): LoadedWorkOrder {
-  const { backend, online, connected, snapshot } = useWorkspace();
-  const live = !!backend && online && connected;
+  const { snapshot } = useWorkspace();
   const item = uuid
     ? historyScope(snapshot, { kind: "workOrders" }) + uuid
     : "";
-  const mark = historyWriteMark(snapshot, "workOrders");
-  const [state, setState] = useState<LoadedItem>(NO_ITEM);
-  const fresh = state.item === item && state.mark === mark;
-  useEffect(() => {
-    if (!uuid || !live || !backend || fresh) return;
-    let current = true;
-    backend.workOrderHistory(uuid).then(
-      (history) => current && setState({ item, mark, history, error: "" }),
-      (e) =>
-        current && setState({ item, mark, error: errorText(e, LOAD_ERROR) }),
-    );
-    return () => void (current = false);
-  }, [uuid, live, backend, fresh, item, mark]);
-  const kept = state.item === item && !!uuid;
-  return {
-    history: kept ? state.history : undefined,
-    loading: !!uuid && live && !fresh,
-    error: kept ? state.error : "",
-    offline: !live,
-  };
+  const { value, ...state } = useLoadedItem(
+    item,
+    historyWriteMark(snapshot, "workOrders"),
+    (backend) => backend.workOrderHistory(uuid!),
+  );
+  return { ...state, history: value };
+}
+
+/**
+ * Records a screen names by uuid that the workspace may not hold, loaded
+ * through Backend.historyRecords while connected: a job card's problem
+ * report, a request's source, a plan's flights.
+ *
+ * @param lookup - The uuids; a lookup naming none loads nothing.
+ * @returns The records once loaded. They load again after any write of a
+ *   flight, problem report or work order, keeping the copy they have
+ *   meanwhile, and are dropped on a program or user change.
+ */
+export function useHistoryRecords(lookup: RecordLookup): LoadedRecords {
+  const { snapshot } = useWorkspace();
+  const named =
+    lookup.discrepancyUuids.length +
+    lookup.taskCardUuids.length +
+    lookup.flightPlanUuids.length;
+  const item = named
+    ? JSON.stringify([snapshot?.user.id, snapshot?.activeProgramUuid, lookup])
+    : "";
+  const mark = (["flights", "discrepancies", "workOrders"] as const)
+    .map((kind) => historyWriteMark(snapshot, kind))
+    .join("|");
+  const { value, ...state } = useLoadedItem(item, mark, (backend) =>
+    backend.historyRecords(lookup),
+  );
+  return { ...state, records: value };
 }
 
 /**
@@ -500,4 +530,41 @@ function joinRows<T extends { uuid: string }>(
 function joinMembers(kept: Member[], added: Member[]): Member[] {
   const seen = new Set(kept.map((m) => m.id));
   return [...kept, ...added.filter((m) => !seen.has(m.id) && seen.add(m.id))];
+}
+
+// One on-demand load per item: fetched while connected, again after the
+// write mark changes (keeping the copy it has meanwhile), dropped when the
+// item changes. `item` identifies what `load` fetches.
+function useLoadedItem<T>(
+  item: string,
+  mark: string | undefined,
+  load: (backend: Backend) => Promise<T>,
+) {
+  const { backend, online, connected } = useWorkspace();
+  const live = !!backend && online && connected;
+  const [state, setState] = useState<LoadedItem<T>>(NO_ITEM);
+  const fresh = state.item === item && state.mark === mark;
+  // The latest `load`, set before the effect below runs: `item` already
+  // names what it fetches, so a new closure alone is no reason to refetch.
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  });
+  useEffect(() => {
+    if (!item || !live || !backend || fresh) return;
+    let current = true;
+    loadRef.current(backend).then(
+      (value) => current && setState({ item, mark, value, error: "" }),
+      (e) =>
+        current && setState({ item, mark, error: errorText(e, LOAD_ERROR) }),
+    );
+    return () => void (current = false);
+  }, [item, live, backend, fresh, mark]);
+  const kept = state.item === item && !!item;
+  return {
+    value: kept ? state.value : undefined,
+    loading: !!item && live && !fresh,
+    error: kept ? state.error : "",
+    offline: !live,
+  };
 }

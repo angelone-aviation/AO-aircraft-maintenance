@@ -11,10 +11,13 @@ import {
   FLIGHT_RANGE_INVALID,
   FLIGHT_RANGE_TOO_LONG,
   MAX_RANGE_FLIGHTS,
+  MAX_RECORD_LOOKUPS,
+  RECORD_LOOKUP_TOO_LARGE,
   flightRange,
+  lookupRecords,
   workOrderHistory,
 } from "./historyReads";
-import type { Flight, Member, Snapshot } from "./model";
+import type { Discrepancy, Flight, Member, Snapshot } from "./model";
 import { workOrderSchema, type WorkOrder } from "./workOrders";
 import { taskCardDefaults, taskCardSchema } from "./taskCards";
 import { costRecordSchema } from "./costs";
@@ -124,6 +127,64 @@ describe("flightRange", () => {
     expect(() => flightRange(full, span)).toThrow(FLIGHT_RANGE_TOO_LONG);
     const fits = { ...span, to: T0 + MAX_RANGE_FLIGHTS };
     expect(flightRange(full, fits).flights).toHaveLength(MAX_RANGE_FLIGHTS);
+  });
+});
+
+describe("lookupRecords", () => {
+  const [reporter, pilot] = ["reporter", "pilot"].map(member);
+  const reportA = report("report-a");
+  const archived = card("archived", id("order"));
+  const s = snapshotOf({
+    members: [pilot, reporter],
+    discrepancies: [report("report-b"), reportA],
+    taskCards: [card("live", id("order")), card("other", id("order"))],
+    archivedTaskCards: [archived],
+    flights: [
+      flight("flown", T0, { flightPlanUuid: id("plan") }),
+      flight("rejected", T0, {
+        flightPlanUuid: id("plan"),
+        status: "rejected",
+      }),
+      flight("unplanned", T0),
+    ],
+  });
+  const none = { discrepancyUuids: [], taskCardUuids: [], flightPlanUuids: [] };
+
+  it("finds the named reports, live and archived job cards, and plans' flights", () => {
+    const found = lookupRecords(s, {
+      discrepancyUuids: [reportA.uuid, "missing"],
+      taskCardUuids: [id("live"), archived.uuid],
+      flightPlanUuids: [id("plan")],
+    });
+    expect(uuids(found.discrepancies)).toEqual([reportA.uuid]);
+    expect(uuids(found.taskCards)).toEqual([id("live")]);
+    expect(uuids(found.archivedTaskCards)).toEqual([archived.uuid]);
+    expect(uuids(found.flights)).toEqual(["flown", "rejected"]);
+    expect(found.members).toEqual([pilot, reporter]);
+  });
+
+  it("finds nothing for nothing named", () => {
+    expect(lookupRecords(s, none)).toEqual({
+      discrepancies: [],
+      taskCards: [],
+      archivedTaskCards: [],
+      flights: [],
+      members: [],
+    });
+  });
+
+  it(`refuses more than ${MAX_RECORD_LOOKUPS} uuids`, () => {
+    const many = Array.from({ length: MAX_RECORD_LOOKUPS }, (_, i) => `u-${i}`);
+    expect(() =>
+      lookupRecords(s, { ...none, discrepancyUuids: many }),
+    ).not.toThrow();
+    expect(() =>
+      lookupRecords(s, {
+        ...none,
+        discrepancyUuids: many,
+        taskCardUuids: ["x"],
+      }),
+    ).toThrow(RECORD_LOOKUP_TOO_LARGE);
   });
 });
 
@@ -304,4 +365,17 @@ function request(name: string, workOrderUuid: string) {
     reservations: [],
     issues: [],
   });
+}
+
+function report(name: string): Discrepancy {
+  return {
+    uuid: id(name),
+    aircraftUuid: A,
+    description: "Landing light flickers.",
+    status: "resolved",
+    authorId: "reporter",
+    createdAt: T0,
+    resolvedAt: T0,
+    resolution: "Replaced lamp.",
+  };
 }

@@ -38,8 +38,12 @@ import {
 } from "../src/domain/retention";
 import {
   FLIGHT_RANGE_INVALID,
+  MAX_RECORD_LOOKUPS,
+  RECORD_LOOKUP_TOO_LARGE,
   flightRange,
+  lookupRecords,
   workOrderHistory,
+  type RecordLookup,
 } from "../src/domain/historyReads";
 import type { Discrepancy, Flight, Snapshot } from "../src/domain/model";
 import { scopedSnapshot } from "../src/domain/programs";
@@ -344,6 +348,75 @@ describe("history.flightsInRange", () => {
   });
 });
 
+describe("history.records", () => {
+  it.each(["admin", "pilot", "mechanic"] as const)(
+    "holds what lookupRecords finds on a %s's snapshot",
+    async (role) => {
+      const plan = uuidOf(9_100);
+      await t.run(async (ctx) => {
+        if (
+          await ctx.db
+            .query("flights")
+            .withIndex("plan", (q) => q.eq("flightPlanUuid", plan))
+            .first()
+        )
+          return;
+        for (const aircraftUuid of [P1, P2])
+          await insertFlight(ctx, {
+            aircraftUuid,
+            start: OLD + (aircraftUuid === P1 ? 1 : 2),
+            flightPlanUuid: plan,
+          });
+      });
+      const named = await t.run(async (ctx) => ({
+        reports: (await ctx.db.query("discrepancies").collect()).map(
+          (d) => d.uuid,
+        ),
+        cards: [
+          ...(await ctx.db.query("taskCards").collect()),
+          ...(await ctx.db.query("archivedTaskCards").collect()),
+        ].map((c) => c.uuid),
+      }));
+      const lookup = {
+        discrepancyUuids: [...named.reports.slice(0, 40), "no-such-report"],
+        taskCardUuids: named.cards.slice(0, 50),
+        flightPlanUuids: [plan],
+      };
+      const found = await lookupFrom(as(role), lookup);
+      const oracle = lookupRecords(await snapshotOf(role), lookup);
+      expect({ ...found, members: [] }).toEqual({ ...oracle, members: [] });
+      // Characterizes current behaviour: as on a page, a former member is
+      // named only when the lookup's own flights show them flying.
+      const flew = new Set(
+        found.flights.flatMap((f) => [f.pilotId, f.copilotId]),
+      );
+      expect(found.members).toEqual(
+        oracle.members.filter((m) => m.active || flew.has(m.id)),
+      );
+      expect(found.flights.length).toBeGreaterThan(0);
+      expect(found.discrepancies.length).toBeGreaterThan(0);
+      const aircraft = new Set(
+        [...found.discrepancies, ...found.flights].map((r) => r.aircraftUuid),
+      );
+      if (role === "pilot") expect([...aircraft]).toEqual([P1]);
+    },
+  );
+
+  it(`refuses more than ${MAX_RECORD_LOOKUPS} uuids`, async () => {
+    const many = Array.from({ length: MAX_RECORD_LOOKUPS + 1 }, (_, i) =>
+      uuidOf(i),
+    );
+    const lookup = {
+      discrepancyUuids: many,
+      taskCardUuids: [],
+      flightPlanUuids: [],
+    };
+    expect(await settle(lookupFrom(as("admin"), lookup))).toEqual({
+      refused: RECORD_LOOKUP_TOO_LARGE,
+    });
+  });
+});
+
 describe("rows stored before the derived columns", () => {
   it("refuses to page flights or work orders until the backfill fills them", async () => {
     const local = convexTest(schema, modules);
@@ -386,6 +459,10 @@ function flightsInRange(
   return client.query(api.history.flightsInRange, { programUuid, ...range });
 }
 
+function lookupFrom(client: Client, lookup: RecordLookup, programUuid = P) {
+  return client.query(api.history.records, { programUuid, ...lookup });
+}
+
 // Every public history query, aimed at program P's records.
 function everyQuery(client: Client, programUuid = P): Promise<Outcome[]> {
   const range = { aircraftUuid: P1, from: OLD - DAY, to: OLD + DAY };
@@ -393,6 +470,13 @@ function everyQuery(client: Client, programUuid = P): Promise<Outcome[]> {
     ...KINDS.map((kind) => settle(page(client, kind, { programUuid }))),
     settle(order(client, world.filedOrder, programUuid)),
     settle(flightsInRange(client, range, programUuid)),
+    settle(
+      lookupFrom(
+        client,
+        { discrepancyUuids: [], taskCardUuids: [], flightPlanUuids: [] },
+        programUuid,
+      ),
+    ),
   ]);
 }
 

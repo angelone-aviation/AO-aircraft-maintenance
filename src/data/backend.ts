@@ -58,6 +58,8 @@ import type { GroupAccessReport } from "../domain/groupAccessReview";
 import type {
   FlightRange,
   FlightRangeRequest,
+  FoundRecords,
+  RecordLookup,
   WorkOrderHistory,
 } from "../domain/historyReads";
 import type { GroupDeletionPlan } from "../domain/groupDeletion";
@@ -729,6 +731,15 @@ export interface Backend {
    */
   flightsInRange(request: FlightRangeRequest): Promise<FlightRange>;
   /**
+   * Records a screen names by uuid, inside the window or not: problem
+   * reports, job cards (live or archived) and the flights logged against
+   * flight plans (lookupRecords in src/domain/historyReads.ts). A record the
+   * user may not read is left out, as one that does not exist.
+   *
+   * @throws "Ask for at most 100 records at a time."
+   */
+  historyRecords(request: RecordLookup): Promise<FoundRecords>;
+  /**
    * Flight Program administrators: an aircraft's work-order costs over a
    * period, summed from the cost ledger, with its budgets for the period's
    * years (history.costReport; snapshotCostReport in the demo).
@@ -1225,6 +1236,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.query(api.history.workOrder, inProgram({ uuid })),
     flightsInRange: (request) =>
       client.query(api.history.flightsInRange, inProgram(request)),
+    historyRecords: (request) =>
+      client.query(api.history.records, inProgram(request)),
     costReport: (request) =>
       client.query(api.history.costReport, inProgram(request)),
     alertReads: (programUuid) =>

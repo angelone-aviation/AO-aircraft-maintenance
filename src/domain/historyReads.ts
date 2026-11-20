@@ -1,6 +1,7 @@
 /**
  * Responsibility: The history reads beyond list pages: one work order with
- *   everything filed on it, and one aircraft's flights over a span of time.
+ *   everything filed on it, one aircraft's flights over a span of time, and
+ *   records named by uuid.
  * Layer: Domain. Pure functions over a scoped snapshot; no I/O, no React.
  * Dependencies: ./model, ./workOrders, ./taskCards, ./costs, ./partsRequests
  *   (types), ./retention (order, named members), ./auditHistory (the
@@ -10,7 +11,7 @@
  * the same function the demo calls on its whole scoped snapshot (ADR-0013),
  * so both answer alike for records inside and outside the window.
  */
-import type { Flight, Member, Snapshot } from "./model";
+import type { Discrepancy, Flight, Member, Snapshot } from "./model";
 import type { WorkOrder, WorkOrderAttachment } from "./workOrders";
 import type { TaskCard, TaskEvidence } from "./taskCards";
 import type { CostRecord } from "./costs";
@@ -33,6 +34,37 @@ export const FLIGHT_RANGE_INVALID = "Choose a start time before the end time.";
 /** The refusal of a range holding more than {@link MAX_RANGE_FLIGHTS}. */
 export const FLIGHT_RANGE_TOO_LONG =
   "Choose a shorter span: it holds more than 1,000 flights.";
+
+/**
+ * The most uuids one lookup may name. Screens ask for the few records a form
+ * or list links to, so it bounds the server's reads, not a feature.
+ */
+export const MAX_RECORD_LOOKUPS = 100;
+/** The refusal of a lookup naming more than {@link MAX_RECORD_LOOKUPS}. */
+export const RECORD_LOOKUP_TOO_LARGE = "Ask for at most 100 records at a time.";
+
+/**
+ * Records a screen names by uuid, which may be older than the workspace's
+ * window: no list pages them on their own.
+ */
+export interface RecordLookup {
+  discrepancyUuids: string[];
+  /** Job cards, live or archived. */
+  taskCardUuids: string[];
+  /** Flight plans whose logged flights are wanted. */
+  flightPlanUuids: string[];
+}
+
+/** What a {@link RecordLookup} finds. */
+export interface FoundRecords {
+  discrepancies: Discrepancy[];
+  taskCards: TaskCard[];
+  archivedTaskCards: TaskCard[];
+  /** Flights logged against the plans, rejected ones included. */
+  flights: Flight[];
+  /** The members the reports and flights name, for their names. */
+  members: Member[];
+}
 
 /** One work order with everything filed on it, as its program shows it. */
 export interface WorkOrderHistory {
@@ -150,5 +182,55 @@ export function flightRange(
   return {
     flights,
     members: namedMembers(s.members, { flights, discrepancies: [] }),
+  };
+}
+
+/**
+ * Checks a lookup before anything is read for it.
+ *
+ * @param request - The uuids named.
+ * @throws {Rejection} {@link RECORD_LOOKUP_TOO_LARGE} when they number more
+ *   than {@link MAX_RECORD_LOOKUPS}.
+ */
+export function assertRecordLookup(request: RecordLookup): void {
+  const named =
+    request.discrepancyUuids.length +
+    request.taskCardUuids.length +
+    request.flightPlanUuids.length;
+  if (named > MAX_RECORD_LOOKUPS) throw new Rejection(RECORD_LOOKUP_TOO_LARGE);
+}
+
+/**
+ * The records a lookup names, whether or not the workspace's window keeps
+ * them. A uuid the snapshot does not hold is left out, the same whether the
+ * record does not exist or the caller may not read it.
+ *
+ * @param s - The scoped snapshot, holding at least the named records.
+ * @param request - The uuids.
+ * @returns Each collection in snapshot order.
+ * @throws {Rejection} {@link RECORD_LOOKUP_TOO_LARGE}.
+ */
+export function lookupRecords(
+  s: Snapshot,
+  request: RecordLookup,
+): FoundRecords {
+  assertRecordLookup(request);
+  const named = (uuids: string[]) => {
+    const wanted = new Set(uuids);
+    return (r: { uuid: string }) => wanted.has(r.uuid);
+  };
+  const plans = new Set(request.flightPlanUuids);
+  const discrepancies = s.discrepancies.filter(named(request.discrepancyUuids));
+  const flights = s.flights.filter(
+    (f) => !!f.flightPlanUuid && plans.has(f.flightPlanUuid),
+  );
+  return {
+    discrepancies,
+    taskCards: (s.taskCards ?? []).filter(named(request.taskCardUuids)),
+    archivedTaskCards: (s.archivedTaskCards ?? []).filter(
+      named(request.taskCardUuids),
+    ),
+    flights,
+    members: namedMembers(s.members, { flights, discrepancies }),
   };
 }
