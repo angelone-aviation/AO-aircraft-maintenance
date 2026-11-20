@@ -106,17 +106,20 @@ The exports are described in
 Each aircraft row shows total time source, Hobbs and tach, landings, profile
 status and its status. Actions:
 
-| Button                 | Does                                                                                                                                                                               | Who                   |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| **Add aircraft**       | Adds an aircraft to the active Flight Program                                                                                                                                      | Administrators        |
-| **Set up an aircraft** | Loads an aircraft's history step by step ([how](Administration.md#set-up-an-aircraft))                                                                                             | Administrators        |
-| **Edit aircraft**      | Changes identity, options, readings and the time source. **Dashboard photo** at the top sets the picture on the aircraft's card (JPEG, PNG or WebP, up to 5 MiB; it saves at once) | Maintenance           |
-| **Add component**      | Adds an installed component                                                                                                                                                        | Maintenance           |
-| **Manuals**            | Opens the aircraft's manuals ([Reference library](Reference-Library.md))                                                                                                           | Everyone who reads it |
-| **Engine trends**      | Shows engine-monitor file summaries against limits ([below](#engine-trends))                                                                                                       | Everyone who reads it |
+| Button                 | Does                                                                                   | Who                   |
+| ---------------------- | -------------------------------------------------------------------------------------- | --------------------- |
+| **Add aircraft**       | Adds an aircraft to the active Flight Program                                          | Administrators        |
+| **Set up an aircraft** | Loads an aircraft's history step by step ([how](Administration.md#set-up-an-aircraft)) | Administrators        |
+| **Edit aircraft**      | Changes identity, options, readings and the time source                                | Maintenance           |
+| **Add component**      | Adds an installed component                                                            | Maintenance           |
+| **Manuals**            | Opens the aircraft's manuals ([Reference library](Reference-Library.md))               | Everyone who reads it |
+| **Engine trends**      | Shows engine-monitor file summaries against limits ([below](#engine-trends))           | Everyone who reads it |
 
 Administrators see setup chips such as "Components missing" or "ADs not
 reviewed"; each opens the setup step that fills it.
+
+**Dashboard photo** at the top of **Edit aircraft** sets the picture on the
+aircraft's Overview card: JPEG, PNG or WebP, up to 5 MiB. It saves at once.
 
 ### Engine trends
 
